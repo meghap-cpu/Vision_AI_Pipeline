@@ -1,0 +1,27 @@
+[property]
+gpu-id=0
+onnx-file=/home/megha/vision-trial/ppe/ppe-dyn-rgb01.onnx
+model-engine-file=/home/megha/vision-trial/ppe/ppe-rgb01_b16_fp16.engine
+labelfile-path=/home/megha/vision-pipeline/config/labels_ppe.txt
+custom-lib-path=/home/megha/vision-pipeline/parsers/libnvdsparse_rfdetr.so
+parse-bbox-func-name=NvDsInferParseRfdetr
+output-blob-names=dets;labels
+infer-dims=3;560;560
+batch-size=1
+network-mode=2
+network-type=0
+process-mode=1
+# results tagged 3: the person detector is 1
+gie-unique-id=3
+# classes 0-4: Hardhat, No_Hardhat, Person, no_safety_vest, safety_vest (slot 5 ignored)
+num-detected-classes=5
+# plain RGB 0-1: normalisation is inside the model; stretch to square; bilinear resizing
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+maintain-aspect-ratio=0
+scaling-filter=1
+cluster-mode=4
+
+[class-attrs-all]
+pre-cluster-threshold=0.4
+topk=300

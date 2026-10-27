@@ -1,0 +1,108 @@
+node_id: pilot-01
+site_id: camp-01
+engine:
+  pgie_config: /home/megha/vision-pipeline/config/pgie_yolo26.txt
+  tracker_lib: /opt/nvidia/deepstream/deepstream-7.1/lib/libnvds_nvmultiobjecttracker.so
+  tracker_config: /opt/nvidia/deepstream/deepstream-7.1/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml
+  max_batch: 16
+  width: 1280
+  height: 720
+cameras:
+  - id: cam00
+    uri: rtsp://127.0.0.1:8554/cam0
+    source_fps: 30
+    analysis_fps: 10
+    use_cases: {test: {}}
+  - id: cam01
+    uri: rtsp://127.0.0.1:8554/cam1
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, motion: {zone: [0.0, 0.3, 1.0, 1.0]}}
+  - id: cam02
+    uri: rtsp://127.0.0.1:8554/cam2
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, motion: {zone: [0.0, 0.3, 1.0, 1.0]}}
+  - id: cam03
+    uri: rtsp://127.0.0.1:8554/cam3
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, crowd: {min_people: 3}}
+  - id: cam04
+    uri: rtsp://127.0.0.1:8554/cam4
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, crowd: {min_people: 3}}
+  - id: cam05
+    uri: rtsp://127.0.0.1:8554/cam5
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, housekeeping: {zone: [0.0, 0.45, 0.35, 1.0]}}
+  - id: cam06
+    uri: rtsp://127.0.0.1:8554/cam6
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, housekeeping: {zone: [0.0, 0.45, 0.35, 1.0]}}
+  - id: cam07
+    uri: rtsp://127.0.0.1:8554/cam7
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, ppe: {}}
+  - id: cam08
+    uri: rtsp://127.0.0.1:8554/cam8
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, ppe: {}}
+  - id: cam09
+    uri: rtsp://127.0.0.1:8554/cam9
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, man_down: {debug_every_s: 10}}
+  - id: cam10
+    uri: rtsp://127.0.0.1:8554/cam10
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, man_down: {debug_every_s: 10}}
+  - id: cam11
+    uri: rtsp://127.0.0.1:8554/cam11
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, fire_smoke: {}}
+  - id: cam12
+    uri: rtsp://127.0.0.1:8554/cam12
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, fire_smoke: {}}
+  - id: cam13
+    uri: rtsp://127.0.0.1:8554/cam13
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, worker_at_height: {zones: [[[0.0, 0.45], [0.35, 0.45], [0.35, 1.0], [0.0, 1.0]]], edges: [[[0.3, 0.45], [0.3, 1.0]]]}}
+  - id: cam14
+    uri: rtsp://127.0.0.1:8554/cam14
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}, worker_at_height: {zones: [[[0.0, 0.45], [0.35, 0.45], [0.35, 1.0], [0.0, 1.0]]], edges: [[[0.3, 0.45], [0.3, 1.0]]]}}
+  - id: cam15
+    uri: rtsp://127.0.0.1:8554/cam15
+    source_fps: 30
+    analysis_fps: 5
+    use_cases: {test: {}}
+models:
+  - name: ppe
+    config: /home/megha/vision-pipeline/config/pgie_ppe.txt
+    gie_id: 3
+    input: [3, 560, 560]
+    tensor: image
+    cameras: [cam07, cam08]   # PPE cameras only
+  - name: pose
+    config: /home/megha/vision-pipeline/config/sgie_pose.txt
+    gie_id: 4
+    crop: pose   # enlarge each person's box the way RTMPose expects
+    cameras: [cam09, cam10]   # man-down cameras only
+vlm:
+  url: http://192.168.0.119:8010/v1   # dedicated VLM Jetson (vLLM, Qwen3-VL-4B)
+  model: cpatonn/Qwen3-VL-4B-Instruct-AWQ-4bit
+  timeout_s: 30
+hub:
+  url: http://127.0.0.1:8100   # stand-in hub for now; the real api-dashboard later

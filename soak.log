@@ -1,0 +1,137 @@
+[pilot-01] starting 16 cameras, plugins: ['test']
+gstnvtracker: Loading low-level lib at /opt/nvidia/deepstream/deepstream-7.1/lib/libnvds_nvmultiobjecttracker.so
+[NvMultiObjectTracker] Initialized
+Setting min object dimensions as 16x16 instead of 1x1 to support VIC compute mode.
+WARNING: [TRT]: Using an engine plan file across different models of devices is not recommended and is likely to affect performance or even cause errors.
+0:00:00.774828980 [35m14692[00m 0xaaaae08fdf60 [36mINFO   [00m [00m             nvinfer gstnvinfer.cpp:684:gst_nvinfer_logger:<pgie>[00m NvDsInferContext[UID 1]: Info from NvDsInferContextImpl::deserializeEngineAndBackend() <nvdsinfer_context_impl.cpp:2092> [UID = 1]: deserialized trt engine from :/home/megha/vision-trial/models/yolo26s_b16_fp16.engine
+INFO: [FullDims Engine Info]: layers num: 2
+0   INPUT  kFLOAT images          3x640x640       min: 1x3x640x640     opt: 8x3x640x640     Max: 16x3x640x640    
+1   OUTPUT kFLOAT output0         300x6           min: 0               opt: 0               Max: 0               
+
+0:00:00.774956655 [35m14692[00m 0xaaaae08fdf60 [36mINFO   [00m [00m             nvinfer gstnvinfer.cpp:684:gst_nvinfer_logger:<pgie>[00m NvDsInferContext[UID 1]: Info from NvDsInferContextImpl::generateBackendContext() <nvdsinfer_context_impl.cpp:2195> [UID = 1]: Use deserialized engine model: /home/megha/vision-trial/models/yolo26s_b16_fp16.engine
+0:00:00.828828717 [35m14692[00m 0xaaaae08fdf60 [36mINFO   [00m [00m             nvinfer gstnvinfer_impl.cpp:343:notifyLoadModelStatus:<pgie>[00m [UID 1]: Load new model:/home/megha/vision-trial/ds/pgie_yolo26.txt sucessfully
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+Opening in BLOCKING MODE 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+Opening in BLOCKING MODE 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+[pilot-01] fps cam00=2.4 others 1.1-2.0 | events {'test': 59} | dropped 0 | snapshot drops 0 | last: cam04 new_person track 58
+[pilot-01] fps cam00=9.8 others 4.9-5.0 | events {'test': 100} | dropped 0 | snapshot drops 0 | last: cam04 new_person track 99
+[pilot-01] fps cam00=9.8 others 4.8-4.9 | events {'test': 176} | dropped 0 | snapshot drops 0 | last: cam04 new_person track 175
+[pilot-01] fps cam00=9.8 others 4.8-4.9 | events {'test': 221} | dropped 0 | snapshot drops 0 | last: cam03 new_person track 220
+[pilot-01] fps cam00=9.7 others 4.9-4.9 | events {'test': 224} | dropped 0 | snapshot drops 0 | last: cam00 new_person track 223
+[pilot-01] fps cam00=9.9 others 4.9-4.9 | events {'test': 270} | dropped 0 | snapshot drops 0 | last: cam14 new_person track 269
+[pilot-01] fps cam00=9.8 others 4.9-4.9 | events {'test': 300} | dropped 0 | snapshot drops 0 | last: cam06 new_person track 299
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 387} | dropped 0 | snapshot drops 0 | last: cam10 new_person track 386
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 412} | dropped 0 | snapshot drops 0 | last: cam01 new_person track 411
+[pilot-01] fps cam00=9.9 others 4.8-5.0 | events {'test': 416} | dropped 0 | snapshot drops 0 | last: cam00 new_person track 415
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 464} | dropped 0 | snapshot drops 0 | last: cam03 new_person track 463
+[pilot-01] fps cam00=9.8 others 4.8-5.0 | events {'test': 495} | dropped 0 | snapshot drops 0 | last: cam02 new_person track 494
+[pilot-01] fps cam00=9.9 others 4.8-4.9 | events {'test': 581} | dropped 0 | snapshot drops 0 | last: cam03 new_person track 580
+[pilot-01] fps cam00=9.7 others 4.8-5.0 | events {'test': 597} | dropped 0 | snapshot drops 0 | last: cam07 new_person track 596
+[pilot-01] fps cam00=9.8 others 4.8-4.9 | events {'test': 609} | dropped 0 | snapshot drops 0 | last: cam06 new_person track 608
+[pilot-01] fps cam00=9.8 others 4.9-4.9 | events {'test': 661} | dropped 0 | snapshot drops 0 | last: cam02 new_person track 660
+[pilot-01] fps cam00=9.7 others 4.9-4.9 | events {'test': 682} | dropped 0 | snapshot drops 0 | last: cam04 new_person track 681
+[pilot-01] fps cam00=9.9 others 4.9-4.9 | events {'test': 787} | dropped 0 | snapshot drops 0 | last: cam00 new_person track 786
+Resetting source -1, attempts: 1
+[pilot-01] fps cam00=10.3 others 0.4-5.2 | events {'test': 789} | dropped 0 | snapshot drops 0 | last: cam07 new_person track 788
+[pilot-01] fps cam00=10.5 others 0.0-5.3 | events {'test': 801} | dropped 0 | snapshot drops 0 | last: cam03 new_person track 799
+Resetting source -1, attempts: 2
+[pilot-01] fps cam00=10.4 others 0.0-5.2 | events {'test': 851} | dropped 0 | snapshot drops 0 | last: cam00 new_person track 850
+Resetting source -1, attempts: 3
+[pilot-01] fps cam00=10.0 others 0.0-5.0 | events {'test': 885} | dropped 0 | snapshot drops 0 | last: cam03 new_person track 881
+Resetting source -1, attempts: 4
+[pilot-01] fps cam00=10.0 others 0.0-5.0 | events {'test': 964} | dropped 0 | snapshot drops 0 | last: cam01 new_person track 963
+Resetting source -1, attempts: 5
+[pilot-01] fps cam00=10.0 others 0.0-5.1 | events {'test': 965} | dropped 0 | snapshot drops 0 | last: cam12 new_person track 964
+Resetting source -1, attempts: 6
+[pilot-01] fps cam00=10.0 others 0.0-5.0 | events {'test': 1001} | dropped 0 | snapshot drops 0 | last: cam03 new_person track 999
+Resetting source -1, attempts: 7
+[pilot-01] fps cam00=10.0 others 0.0-5.0 | events {'test': 1031} | dropped 0 | snapshot drops 0 | last: cam13 new_person track 1029
+Resetting source -1, attempts: 8
+[pilot-01] fps cam00=10.0 others 0.0-5.1 | events {'test': 1096} | dropped 0 | snapshot drops 0 | last: cam13 new_person track 1095
+Resetting source -1, attempts: 9
+[pilot-01] fps cam00=10.0 others 0.0-5.0 | events {'test': 1135} | dropped 0 | snapshot drops 0 | last: cam03 new_person track 1134
+Resetting source -1, attempts: 10
+[pilot-01] fps cam00=10.0 others 0.0-5.1 | events {'test': 1139} | dropped 0 | snapshot drops 0 | last: cam06 new_person track 1138
+Resetting source -1, attempts: 11
+[pilot-01] fps cam00=10.0 others 0.0-5.0 | events {'test': 1181} | dropped 0 | snapshot drops 0 | last: cam06 new_person track 1179
+[pilot-01] fps cam00=10.0 others 0.0-5.1 | events {'test': 1205} | dropped 0 | snapshot drops 0 | last: cam07 new_person track 1204
+Resetting source -1, attempts: 12
+Opening in BLOCKING MODE 
+NvMMLiteOpen : Block : BlockType = 261 
+NvMMLiteBlockCreate : Block : BlockType = 261 
+[pilot-01] fps cam00=10.0 others 1.2-5.0 | events {'test': 1288} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 1287
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 1316} | dropped 0 | snapshot drops 0 | last: cam10 new_person track 1315
+[pilot-01] fps cam00=9.8 others 4.9-4.9 | events {'test': 1319} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 1318
+[pilot-01] fps cam00=9.8 others 4.9-4.9 | events {'test': 1366} | dropped 0 | snapshot drops 0 | last: cam01 new_person track 1365
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 1397} | dropped 0 | snapshot drops 0 | last: cam06 new_person track 1396
+[pilot-01] fps cam00=9.9 others 4.8-4.9 | events {'test': 1486} | dropped 0 | snapshot drops 0 | last: cam06 new_person track 1485
+[pilot-01] fps cam00=9.7 others 4.9-5.0 | events {'test': 1503} | dropped 0 | snapshot drops 0 | last: cam01 new_person track 1502
+[pilot-01] fps cam00=9.8 others 4.8-4.9 | events {'test': 1514} | dropped 0 | snapshot drops 0 | last: cam15 new_person track 1512
+[pilot-01] fps cam00=9.8 others 4.8-5.0 | events {'test': 1564} | dropped 0 | snapshot drops 0 | last: cam11 new_person track 1563
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 1597} | dropped 0 | snapshot drops 0 | last: cam01 new_person track 1596
+[pilot-01] fps cam00=9.8 others 4.9-5.0 | events {'test': 1690} | dropped 0 | snapshot drops 0 | last: cam14 new_person track 1689
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 1698} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 1697
+[pilot-01] fps cam00=9.9 others 4.9-5.0 | events {'test': 1712} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 1711
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 1763} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 1762
+[pilot-01] fps cam00=9.9 others 4.8-4.9 | events {'test': 1781} | dropped 0 | snapshot drops 0 | last: cam06 new_person track 1779
+[pilot-01] fps cam00=9.8 others 4.9-4.9 | events {'test': 1877} | dropped 0 | snapshot drops 0 | last: cam10 new_person track 1876
+[pilot-01] fps cam00=9.8 others 4.9-4.9 | events {'test': 1883} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 1882
+[pilot-01] fps cam00=9.8 others 4.9-5.0 | events {'test': 1901} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 1900
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 1954} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 1953
+[pilot-01] fps cam00=9.8 others 4.8-4.9 | events {'test': 1992} | dropped 0 | snapshot drops 0 | last: cam00 new_person track 1990
+[pilot-01] fps cam00=9.8 others 4.9-5.0 | events {'test': 2075} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 2074
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 2081} | dropped 0 | snapshot drops 0 | last: cam00 new_person track 2080
+[pilot-01] fps cam00=9.8 others 4.9-4.9 | events {'test': 2118} | dropped 0 | snapshot drops 0 | last: cam04 new_person track 2117
+[pilot-01] fps cam00=9.8 others 4.9-5.0 | events {'test': 2148} | dropped 0 | snapshot drops 0 | last: cam13 new_person track 2147
+[pilot-01] fps cam00=9.8 others 4.9-4.9 | events {'test': 2233} | dropped 0 | snapshot drops 0 | last: cam07 new_person track 2232
+[pilot-01] fps cam00=9.8 others 4.8-4.9 | events {'test': 2264} | dropped 0 | snapshot drops 0 | last: cam05 new_person track 2263
+[pilot-01] fps cam00=9.7 others 4.8-5.0 | events {'test': 2268} | dropped 0 | snapshot drops 0 | last: cam00 new_person track 2267
+[pilot-01] fps cam00=9.9 others 4.8-5.0 | events {'test': 2312} | dropped 0 | snapshot drops 0 | last: cam01 new_person track 2311
+[pilot-01] fps cam00=9.7 others 4.8-4.9 | events {'test': 2347} | dropped 0 | snapshot drops 0 | last: cam02 new_person track 2346
+NVMMLITE_NVVIDEODEC, <cbAllocPictureBuffer, 4995> ErrorInfo = VideoErrorInfo_OutputBufferUnavailable cctx = 0x880b3960
+[NvMultiObjectTracker] De-initialized

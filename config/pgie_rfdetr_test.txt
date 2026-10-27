@@ -1,0 +1,27 @@
+[property]
+gpu-id=0
+onnx-file=/home/megha/vision-trial/rfdetr/rfdetr-base-rgb01.onnx
+model-engine-file=/home/megha/vision-trial/rfdetr/rfdetr-base-rgb01_b1_fp16.engine
+custom-lib-path=/home/megha/vision-pipeline/parsers/libnvdsparse_rfdetr.so
+parse-bbox-func-name=NvDsInferParseRfdetr
+output-blob-names=dets;labels
+infer-dims=3;560;560
+batch-size=1
+network-mode=2
+network-type=0
+process-mode=1
+gie-unique-id=2
+# RF-DETR's 91 COCO class slots
+num-detected-classes=91
+# plain RGB 0-1: the ImageNet normalisation is inside the model
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+# RF-DETR stretches the image to a square, no letterbox
+maintain-aspect-ratio=0
+# bilinear resizing instead of the default nearest-neighbour
+scaling-filter=1
+cluster-mode=4
+
+[class-attrs-all]
+pre-cluster-threshold=0.5
+topk=300

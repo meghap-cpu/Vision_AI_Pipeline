@@ -1,0 +1,21 @@
+[property]
+gpu-id=0
+onnx-file=/home/megha/vision-trial/pose/pose-rgb01.onnx
+model-engine-file=/home/megha/vision-trial/pose/pose-rgb01_b32_fp16.engine
+infer-dims=3;256;192
+batch-size=32
+network-mode=2
+# secondary: runs on each person found by the person detector (gie 1, class 0)
+process-mode=2
+gie-unique-id=4
+operate-on-gie-id=1
+operate-on-class-ids=0
+# not a detector: pass the raw output (simcc_x, simcc_y) to Python
+network-type=100
+output-tensor-meta=1
+output-blob-names=simcc_x;simcc_y
+# plain RGB 0-1 (normalisation is inside the model); stretch the crop; bilinear resizing
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+maintain-aspect-ratio=0
+scaling-filter=1

@@ -1,0 +1,27 @@
+[property]
+gpu-id=0
+onnx-file=/home/megha/vision-trial/models/yolo26s.onnx
+model-engine-file=/home/megha/vision-trial/models/yolo26s_b16_fp16.engine
+labelfile-path=/home/megha/vision-pipeline/config/labels_coco8.txt
+custom-lib-path=/home/megha/vision-trial/parser/libnvdsparse_yolo26.so
+parse-bbox-func-name=NvDsInferParseYolo26
+output-blob-names=output0
+infer-dims=3;640;640
+batch-size=1
+network-mode=2
+network-type=0
+process-mode=1
+gie-unique-id=1
+# COCO classes 0-7: person, bicycle, car, motorcycle, airplane, bus, train, truck
+num-detected-classes=8
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+maintain-aspect-ratio=1
+symmetric-padding=1
+# bilinear resizing instead of the default nearest-neighbour
+scaling-filter=1
+cluster-mode=4
+
+[class-attrs-all]
+pre-cluster-threshold=0.35
+topk=300
