@@ -1,9 +1,9 @@
 [property]
 gpu-id=0
-onnx-file=/home/megha/vision-trial/models/yolo26s.onnx
-model-engine-file=/home/megha/vision-trial/models/yolo26s_b16_fp16.engine
-labelfile-path=/home/megha/vision-pipeline/config/labels_coco8.txt
-custom-lib-path=/home/megha/vision-trial/parser/libnvdsparse_yolo26.so
+onnx-file=../models/yolo26s.onnx
+model-engine-file=../models/yolo26s_b16_fp16.engine
+labelfile-path=labels_coco8.txt
+custom-lib-path=../parsers/libnvdsparse_yolo26.so
 parse-bbox-func-name=NvDsInferParseYolo26
 output-blob-names=output0
 infer-dims=3;640;640

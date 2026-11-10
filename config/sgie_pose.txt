@@ -1,7 +1,7 @@
 [property]
 gpu-id=0
-onnx-file=/home/megha/vision-trial/pose/pose-rgb01.onnx
-model-engine-file=/home/megha/vision-trial/pose/pose-rgb01_b32_fp16.engine
+onnx-file=../models/pose-rgb01.onnx
+model-engine-file=../models/pose-rgb01_b32_fp16.engine
 infer-dims=3;256;192
 batch-size=32
 network-mode=2

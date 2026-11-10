@@ -1,9 +1,9 @@
 [property]
 gpu-id=0
-onnx-file=/home/megha/vision-trial/ppe/ppe-dyn-rgb01.onnx
-model-engine-file=/home/megha/vision-trial/ppe/ppe-rgb01_b16_fp16.engine
-labelfile-path=/home/megha/vision-pipeline/config/labels_ppe.txt
-custom-lib-path=/home/megha/vision-pipeline/parsers/libnvdsparse_rfdetr.so
+onnx-file=../models/ppe-dyn-rgb01.onnx
+model-engine-file=../models/ppe-rgb01_b16_fp16.engine
+labelfile-path=labels_ppe.txt
+custom-lib-path=../parsers/libnvdsparse_rfdetr.so
 parse-bbox-func-name=NvDsInferParseRfdetr
 output-blob-names=dets;labels
 infer-dims=3;560;560

@@ -1,7 +1,7 @@
 node_id: pilot-01
 site_id: camp-01
 engine:
-  pgie_config: /home/megha/vision-pipeline/config/pgie_yolo26.txt
+  pgie_config: config/pgie_yolo26.txt
   tracker_lib: /opt/nvidia/deepstream/deepstream-7.1/lib/libnvds_nvmultiobjecttracker.so
   tracker_config: /opt/nvidia/deepstream/deepstream-7.1/samples/configs/deepstream-app/config_tracker_NvSORT.yml
   max_batch: 16
@@ -90,13 +90,13 @@ cameras:
     use_cases: {}
 models:
   - name: ppe
-    config: /home/megha/vision-pipeline/config/pgie_ppe.txt
+    config: config/pgie_ppe.txt
     gie_id: 3
     input: [3, 560, 560]
     tensor: image
     cameras: [cam07, cam08]   # PPE cameras only
   - name: pose
-    config: /home/megha/vision-pipeline/config/sgie_pose.txt
+    config: config/sgie_pose.txt
     gie_id: 4
     crop: pose   # enlarge each person's box the way RTMPose expects
     cameras: [cam09, cam10]   # man-down cameras only
