@@ -3,3 +3,4 @@ models/
 *.log
 parsers/*.so
 __pycache__/
+hub/.env

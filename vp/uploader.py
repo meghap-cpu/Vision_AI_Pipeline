@@ -24,10 +24,11 @@ class Uploader:
     def _event(r):
         when = r["ts"] or r["created"]
         return {"event_id": r["event_id"], "incident_id": r["incident_id"],
-                "timestamp": datetime.fromtimestamp(when, timezone.utc).isoformat(),
+                "timestamp": datetime.fromtimestamp(when, timezone.utc).astimezone().isoformat(timespec="seconds"),
                 "site_id": r["site_id"], "node_id": r["node_id"], "camera_id": r["camera_id"],
                 "use_case": r["use_case"], "class": r["class"], "severity": r["severity"],
                 "confidence": r["confidence"], "track_id": r["track_id"],
+                "rule": r.get("rule"), "instance": r.get("instance"), "model": r.get("model"),
                 "snapshot_ref": r["event_id"] if r["snapshot"] else None, "extra": json.loads(r["extra"] or "{}")}
 
     def _status(self, ok, err=None):

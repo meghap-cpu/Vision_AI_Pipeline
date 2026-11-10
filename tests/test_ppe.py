@@ -1,44 +1,43 @@
-"""PPE decisions on made-up detections, 3 checks per second for 8 seconds. Run: python3 -m tests.test_ppe
-Track 1: hardhat + vest, one wrong No_Hardhat frame        -> nothing
-Track 2: no hardhat every check, vest on                    -> one no_hardhat alert
-Track 3: head never visible (back turned), vest on          -> nothing (unknown is not a violation)
-A loose vest box on nobody                                  -> ignored"""
+"""PPE on made-up detections, 3 checks per second for 22 s. Run: python3 -m tests.test_ppe
+Track 1: hardhat on, one wrong frame                     -> nothing
+Track 2: no hardhat all along                            -> alert at ~11 s (1 s to establish + 10 s), again at ~19 s
+Track 3: head never visible                              -> nothing
+Track 4: no hardhat but outside the zone                 -> nothing
+Track 5: "no hardhat" only at confidence 0.3 (< 0.5)     -> nothing"""
 from vp.plugin import Frame, Obj
 from vp.plugins.ppe import PPEPlugin
 
 HARDHAT, NO_HARDHAT, VEST = 0, 1, 4
-PEOPLE = {1: (0.10, 0.20, 0.20, 0.80), 2: (0.40, 0.20, 0.50, 0.80), 3: (0.70, 0.20, 0.80, 0.80)}
+PEOPLE = {1: (0.10, 0.20, 0.20, 0.80), 2: (0.40, 0.20, 0.50, 0.80), 3: (0.70, 0.20, 0.80, 0.80),
+          4: (0.88, 0.20, 0.96, 0.80), 5: (0.25, 0.20, 0.33, 0.80)}
 
 
 def person(tid):
     return Obj(tid, 0, 0.9, PEOPLE[tid], source=1)
 
 
-def head(tid, cls):  # a box on the person's head (top 15% of their box)
+def head(tid, cls, conf=0.8):
     x1, y1, x2, y2 = PEOPLE[tid]
-    return Obj(0, cls, 0.8, (x1 + 0.02, y1, x2 - 0.02, y1 + 0.09 * (y2 - y1) * 1.5), source=3)
-
-
-def vest(tid):  # a box on the person's torso
-    x1, y1, x2, y2 = PEOPLE[tid]
-    return Obj(0, VEST, 0.8, (x1, y1 + 0.25 * (y2 - y1), x2, y1 + 0.6 * (y2 - y1)), source=3)
+    return Obj(0, cls, conf, (x1 + 0.01, y1, x2 - 0.01, y1 + 0.13 * (y2 - y1)), source=3)
 
 
 def run():
-    plugin = PPEPlugin("test-cam", {})
+    params = {"duration_s": 10, "cooldown_s": 8, "min_confidence": 0.5,
+              "zones": [[[0.0, 0.0], [0.85, 0.0], [0.85, 1.0], [0.0, 1.0]]]}  # track 4 stands outside it
+    plugin = PPEPlugin("test-cam", params)
     got = []
-    for n in range(24):  # 3 checks per second, 8 seconds
+    for n in range(66):
         t = n / 3
-        objs = [person(1), person(2), person(3)]
-        objs += [head(1, NO_HARDHAT if n == 5 else HARDHAT), vest(1)]   # one wrong frame for track 1
-        objs += [head(2, NO_HARDHAT), vest(2)]                          # track 2 never wears a hardhat
-        objs += [vest(3)]                                               # track 3: no head box ever
-        objs += [Obj(0, VEST, 0.8, (0.90, 0.30, 0.99, 0.50), source=3)]  # a vest on nobody
+        objs = [person(i) for i in PEOPLE]
+        objs += [head(1, NO_HARDHAT if n == 5 else HARDHAT), head(2, NO_HARDHAT, 0.85),
+                 head(4, NO_HARDHAT), head(5, NO_HARDHAT, 0.3)]
         for ev in plugin.on_frame(Frame("test-cam", n, t, objs)):
-            got.append((ev["class"], ev["track_id"]))
-            print(f"t={t:4.1f}s  {ev['class']}  track {ev['track_id']}  {ev['extra']}")
-    assert got == [("no_hardhat", 2)], f"unexpected events: {got}"
-    print("PASS: one alert for the person without a hardhat; one bad frame, unknown heads and loose vests ignored")
+            got.append((ev["class"], ev["track_id"], round(t, 1)))
+            print(f"t={t:4.1f}s  {ev['class']}  track {ev['track_id']}  conf {ev['confidence']}  {ev['extra']}")
+    assert [(c, tr) for c, tr, _ in got] == [("no_hardhat", 2), ("no_hardhat", 2)], f"unexpected: {got}"
+    assert 10.5 <= got[0][2] <= 11.7 and 18.5 <= got[1][2] <= 19.9, f"timing: {got}"
+    print("PASS: alert after 10 s without a hardhat and again after the cooldown; one bad frame, unknown heads, "
+          "people outside the zone and low-confidence detections ignored")
 
 
 if __name__ == "__main__":

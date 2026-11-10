@@ -3,7 +3,7 @@ site_id: camp-01
 engine:
   pgie_config: /home/megha/vision-pipeline/config/pgie_yolo26.txt
   tracker_lib: /opt/nvidia/deepstream/deepstream-7.1/lib/libnvds_nvmultiobjecttracker.so
-  tracker_config: /opt/nvidia/deepstream/deepstream-7.1/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml
+  tracker_config: /opt/nvidia/deepstream/deepstream-7.1/samples/configs/deepstream-app/config_tracker_NvSORT.yml
   max_batch: 16
   width: 1280
   height: 720
@@ -47,12 +47,12 @@ cameras:
     uri: rtsp://127.0.0.1:8554/cam7
     source_fps: 30
     analysis_fps: 5
-    use_cases: {test: {}, ppe: {}}
+    use_cases: {test: {}, ppe: {rule: "PPE compliance", instance: "Workshop A"}}
   - id: cam08
     uri: rtsp://127.0.0.1:8554/cam8
     source_fps: 30
     analysis_fps: 5
-    use_cases: {test: {}, ppe: {}}
+    use_cases: {test: {}, ppe: {rule: "PPE compliance", instance: "Electric room"}}
   - id: cam09
     uri: rtsp://127.0.0.1:8554/cam9
     source_fps: 30
@@ -106,3 +106,17 @@ vlm:
   timeout_s: 30
 hub:
   url: http://127.0.0.1:8100   # stand-in hub for now; the real api-dashboard later
+retention:
+  max_memory_gb: 8   # main process restarts cleanly above this
+  snapshot_keep_hours: 24
+  snapshot_max_gb: 2
+  outbox_keep_days: 7
+  disk_warn_free_gb: 2
+model_versions:
+  ppe: "ppe-merged rfdetr v1"
+  man_down: "rtmpose-m"
+  fire_smoke: "qwen3-vl-4b-awq"
+  worker_at_height: "qwen3-vl-4b-awq"
+  crowd: "yolo26s"
+  housekeeping: "yolo26s + background"
+  motion: "background model"

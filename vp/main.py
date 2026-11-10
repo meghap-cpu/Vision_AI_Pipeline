@@ -16,13 +16,16 @@ import numpy as np
 import pyds
 
 from vp import worker
+from vp.health import HealthReporter
 from vp.outbox import Outbox
+from vp.retention import Retention
 from vp.uploader import Uploader
 from vp.pipeline import build
 from vp.plugin import Frame, Obj
 from vp.pixels import crop_color, crop_zone
 from vp.pose import decode, pose_box, tensors
 from vp.plugins import REGISTRY
+from vp.remote_config import RESTART_CODE, load_node, watch
 from vp.settings import load
 from vp.snapshots import Snapshots
 from vp.watchdog import CameraWatchdog
@@ -66,12 +69,22 @@ def start_workers(settings, ctx):
             if uc not in REGISTRY:
                 raise ValueError(f"camera {cam.id}: unknown use case '{uc}'")
             extra = {"vlm": settings.vlm} if getattr(REGISTRY[uc], "uses_vlm", False) else {}
+            if settings.model_versions.get(uc) and not (params or {}).get("model"):
+                extra["model"] = settings.model_versions[uc]
             by_use_case.setdefault(uc, {})[cam.id] = dict(params or {}, **extra)
     return {uc: Worker(ctx, uc, cams) for uc, cams in by_use_case.items()}
 
 
+def _rss_mb():
+    """This process's memory (RSS) in MB."""
+    with open("/proc/self/status") as f:
+        return next(int(l.split()[1]) for l in f if l.startswith("VmRSS")) / 1024
+
+
 def main(path="config/node.yaml"):
-    settings = load(path)
+    settings, source, config_hash, config_url = load_node(path)
+    print(f"settings from: {source}", flush=True)
+    restart = {"needed": False}
     cams = settings.cameras
     W, H = settings.engine["width"], settings.engine["height"]
     os.makedirs(settings.data_dir, exist_ok=True)
@@ -79,6 +92,13 @@ def main(path="config/node.yaml"):
     snaps = Snapshots(outbox, os.path.join(settings.data_dir, "snapshots"))
     watchdog = CameraWatchdog([c.id for c in cams], outbox, settings.camera_offline_after_s)
     uploader = Uploader(outbox, settings.hub["url"]) if settings.hub.get("url") else None
+    retention = Retention(outbox, os.path.join(settings.data_dir, "snapshots"), settings.retention)
+    health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, lambda: {
+        "settings_source": source, "cameras_fps": status.get("fps"), "dropped_frames": stats["dropped"],
+        "cameras_offline": [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
+        "workers_alive": status.get("workers"), "unsent_alerts": outbox.unsent(),
+        "snapshot_errors": snaps.errors, "node_rss_mb": status.get("rss_mb"), "snapshot_queue": snaps.q.qsize()},
+        settings.hub.get("health_every_s", 30), settings.data_dir) if settings.hub.get("url") else None)
     workers = start_workers(settings, mp.get_context("spawn"))
     routes = [list(cam.use_cases) for cam in cams]
     pixel_zones = [{uc: ((p or {}).get("zone", [0, 0, 1, 1]), REGISTRY[uc].pixel_mode,
@@ -148,6 +168,12 @@ def main(path="config/node.yaml"):
         return decode(t, saved[1], W, H) if t else None
     frames = [0] * len(cams)
     stats = {"dropped": 0, "events": Counter(), "last_event": None}
+    status = {}  # latest per-camera fps and workers, for health reports
+    mem_trace = None
+    if os.environ.get("VP_TRACEMALLOC"):  # diagnostic: which lines hold growing memory
+        import tracemalloc
+        tracemalloc.start(3)
+        mem_trace = {"base": None, "t": time.time()}
     want_snap, snap_lock = {}, threading.Lock()  # camera_id -> [(event_id, track_id)]
 
     def probe(pad, info):
@@ -234,6 +260,22 @@ def main(path="config/node.yaml"):
         dt = now - last["t"]
         fps = [(frames[i] - last["f"][i]) / dt for i in range(len(cams))]
         last["t"], last["f"] = now, frames.copy()
+        status.update(fps={c.id: round(f, 1) for c, f in zip(cams, fps)},
+                      workers={uc: w.process.is_alive() for uc, w in workers.items()})
+        if mem_trace is not None and time.time() - mem_trace["t"] > 600:
+            snap = tracemalloc.take_snapshot()
+            if mem_trace["base"] is None:
+                print("memory tracer: baseline taken (after 10 min warm-up)", flush=True)
+            else:
+                for st in snap.compare_to(mem_trace["base"], "lineno")[:8]:
+                    print(f"memory growth: {str(st)[:160]}", flush=True)
+            mem_trace.update(base=mem_trace["base"] or snap, t=time.time())
+        status["rss_mb"] = rss = round(_rss_mb())
+        limit = settings.retention.get("max_memory_gb")
+        if limit and rss > limit * 1024 and not restart["needed"]:  # safety net for slow native memory growth
+            print(f"memory guard: main process at {rss} MB, over {limit} GB: restarting cleanly", flush=True)
+            restart["needed"] = True
+            GLib.idle_add(loop.quit)
         rest = fps[1:] or [0]
         ev = stats["last_event"]
         last_ev = f"{ev['camera_id']} {ev['class']} track {ev.get('track_id')}" if ev else "none"
@@ -264,11 +306,19 @@ def main(path="config/node.yaml"):
     for sig in (signal.SIGINT, signal.SIGTERM):
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, sig, loop.quit)
     print(f"[{settings.node_id}] starting {len(cams)} cameras, plugins: {list(workers)}", flush=True)
+    if config_url:
+        def settings_changed():
+            print("settings changed at the hub: restarting to apply them", flush=True)
+            restart["needed"] = True
+            GLib.idle_add(loop.quit)
+        watch(config_url, config_hash, settings_changed, settings.hub.get("config_check_s", 60))
     pipe.set_state(Gst.State.PLAYING)
     loop.run()
     pipe.set_state(Gst.State.NULL)
     for w in workers.values():
         w.stop()
+    if restart["needed"]:
+        sys.exit(RESTART_CODE)
 
 
 if __name__ == "__main__":

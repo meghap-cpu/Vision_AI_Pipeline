@@ -1,0 +1,25 @@
+# systemd service: starts the vision node at boot and restarts it if it stops.
+# Install (after the soak):  sudo cp tools/vision-node.service /etc/systemd/system/
+#                            sudo systemctl daemon-reload && sudo systemctl enable --now vision-node
+# Logs:                      journalctl -u vision-node -f
+[Unit]
+Description=Vision pipeline node (DeepStream + safety rules)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=megha
+WorkingDirectory=/home/megha/vision-pipeline
+# Lock the clocks for steady performance, then run the node (code 3 = new settings: restart at once)
+ExecStartPre=+/usr/bin/jetson_clocks
+ExecStart=/usr/bin/python3 -u -m vp.main config/bootstrap.yaml
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=0
+SuccessExitStatus=3
+# Stop cleanly (like Ctrl+C), giving the node time to finish uploads and close the outbox
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

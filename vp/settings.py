@@ -28,11 +28,18 @@ class Settings:
     models: list = field(default_factory=list)  # extra whole-frame models, e.g. PPE
     vlm: dict = field(default_factory=dict)  # VLM server: url, model, timeout_s
     hub: dict = field(default_factory=dict)  # hub event intake: url
+    retention: dict = field(default_factory=dict)  # storage limits on the node
+    model_versions: dict = field(default_factory=dict)  # use case -> model version label
 
 
 def load(path: str) -> Settings:
     with open(path) as f:
-        raw = yaml.safe_load(f)
+        return from_dict(yaml.safe_load(f))
+
+
+def from_dict(raw) -> Settings:
+    from vp.rules import expand
+    raw = expand(raw)  # CampNeuron's detection_types + rules -> per-camera settings
     cameras = [Camera(**c) for c in raw["cameras"]]
     ids = [c.id for c in cameras]
     if len(ids) != len(set(ids)):
@@ -41,4 +48,4 @@ def load(path: str) -> Settings:
     if not 0 < len(cameras) <= max_batch:
         raise ValueError(f"{len(cameras)} cameras configured; the engine allows 1 to {max_batch}")
     return Settings(raw["node_id"], raw["site_id"], raw["engine"], cameras, raw.get("data_dir", "data"),
-                    raw.get("camera_offline_after_s", 15.0), raw.get("models", []), raw.get("vlm", {}), raw.get("hub", {}))
+                    raw.get("camera_offline_after_s", 15.0), raw.get("models", []), raw.get("vlm", {}), raw.get("hub", {}), raw.get("retention", {}), raw.get("model_versions", {}))

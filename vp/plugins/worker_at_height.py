@@ -1,9 +1,13 @@
 """Worker at height. Ported from woker-at-height: a person whose feet are inside a height zone opens an incident;
-their crop (30 px padding at 1280 wide) goes to the VLM with the repo's PPE prompt and parsing rules. Missing PPE ->
-high (at_height_violation); missing and near an edge -> critical (at_height_critical); no verdict in 10 s (3 s near
-an edge) -> high (at_height_unverified); compliant workers are re-checked every 300 s; the incident closes 3 s after
-the person leaves the zone. All timings and distances are settings: provisional values set by the development team.
-Changed: the VLM call never blocks the video; one alert per level per incident."""
+their crop (30 px padding at 1280 wide) goes to the VLM with the repo's PPE prompt and parsing rules, plus a vest.
+Priorities as in the repo: in the zone for entered_after_s (5 s) -> low (at_height_entered, sent as warning; skipped
+if the incident is already high, so walk-throughs and tracker blips raise nothing); any of harness, helmet or
+vest missing -> high (at_height_violation, sent as critical); missing and near an edge -> at_height_critical; no
+verdict in 10 s (3 s near an edge) -> high (at_height_unverified). Compliant workers are re-checked every 300 s.
+3 s after the person leaves: a low-only incident closes (at_height_end); one that reached high stays open for an
+operator to review (at_height_left, a record only), as in the repo. All timings and distances are settings:
+provisional values set by the development team. Keep the CampNeuron rule's severity blank, or it flattens these levels.
+Changed: the VLM call never blocks the video; one alert per level per incident; re-checks stay in the same incident."""
 import cv2
 import numpy as np
 
@@ -14,13 +18,18 @@ PPE_PROMPT = (
     "You are a safety inspector. Examine this image of a worker carefully.\n"
     "Determine whether the worker is wearing:\n"
     "  1. A safety harness (full-body or chest harness)\n"
-    "  2. A helmet or hard hat\n\n"
+    "  2. A helmet or hard hat\n"
+    "  3. A high-visibility safety vest\n\n"
     "Reply ONLY with a JSON object in exactly this format, no other text:\n"
-    '{"harness": true/false, "helmet": true/false, '
+    '{"harness": true/false, "helmet": true/false, "vest": true/false, '
     '"harness_confidence": "high/medium/low", '
     '"helmet_confidence": "high/medium/low", '
+    '"vest_confidence": "high/medium/low", '
     '"notes": "<one short sentence>"}'
 )
+
+
+ITEMS = ("harness", "helmet", "vest")
 
 
 def _as_bool(v):
@@ -37,15 +46,12 @@ def parse_ppe(ans):
     """The repo's rules on a parsed reply. None if unusable."""
     if not isinstance(ans, dict):
         return None
-    harness, helmet = _as_bool(ans.get("harness")), _as_bool(ans.get("helmet"))
-    if harness is None and helmet is None:
+    items = {k: _as_bool(ans.get(k)) for k in ITEMS}
+    if all(v is None for v in items.values()):
         return None
-    harness = False if harness is None else harness  # answered one item but not the other: assume missing
-    helmet = False if helmet is None else helmet
-    return {"harness": harness, "helmet": helmet,
-            "harness_confidence": str(ans.get("harness_confidence", "low")),
-            "helmet_confidence": str(ans.get("helmet_confidence", "low")),
-            "notes": str(ans.get("notes", "") or ""), "violation": not (harness and helmet)}
+    items = {k: False if v is None else v for k, v in items.items()}  # answered some items but not all: assume missing
+    return {**items, **{f"{k}_confidence": str(ans.get(f"{k}_confidence", "low")) for k in ITEMS},
+            "notes": str(ans.get("notes", "") or ""), "violation": not all(items.values())}
 
 
 def seg_dist(p, a, b):
@@ -58,7 +64,7 @@ def seg_dist(p, a, b):
 
 class WorkerAtHeightPlugin(Plugin):
     name = "worker_at_height"
-    needs_pixels, pixel_mode, pixels_every_s, pixel_max_width = True, "color", 1.0, 1280  # full resolution, 1 per s
+    needs_pixels, pixel_mode, pixels_every_s, pixel_max_width = True, "color", 0.5, 1280  # full resolution, 1 per s
     uses_vlm = True
 
     def __init__(self, camera_id, params):
@@ -73,7 +79,8 @@ class WorkerAtHeightPlugin(Plugin):
         self.edge_unverified_s = g("near_edge_unverified_escalate_s", 3.0)
         self.reverify_s = g("reverify_s", 300.0)
         self.grace_s = g("depart_grace_s", 3.0)
-        self.image_max_age_s = g("image_max_age_s", 2.0)
+        self.entered_after_s = g("entered_after_s", 5.0)  # time in the zone before the low alert
+        self.image_max_age_s = g("image_max_age_s", 0.75)
         self.error_every_s = g("error_every_s", 60.0)
         v = g("vlm", {})
         self.client = VLMClient(v.get("url", "http://127.0.0.1:8000/v1"), v.get("model", "qwen3-vl"),
@@ -116,15 +123,16 @@ class WorkerAtHeightPlugin(Plugin):
                     and frame.ts - self.image_ts <= self.image_max_age_s:
                 crop = self._crop(o.box)
                 if crop is not None:
-                    inc["pending"] = self.client.ask([crop], PPE_PROMPT, max_tokens=120)
+                    inc["pending"] = self.client.ask([crop], PPE_PROMPT, max_tokens=160)
         for tid, inc in list(self.incidents.items()):
             if inc["pending"] is not None and inc["pending"].done():
                 events += self._verdict(frame, inc)
             events += self._escalate(frame, tid, inc)
             if frame.ts - inc["last_in"] >= self.grace_s:
                 del self.incidents[tid]
-                if inc["levels"]:
-                    events.append(event(self, frame, "at_height_end", severity="info", incident=f"{tid}@{inc['opened']:.1f}", confidence=1.0, track_id=tid,
+                if inc["levels"]:  # reached high: stays open for an operator (repo); low only: closes
+                    cls = "at_height_left" if inc["levels"] - {"at_height_entered"} else "at_height_end"
+                    events.append(event(self, frame, cls, severity="info", incident=f"{tid}@{inc['opened']:.1f}", confidence=1.0, track_id=tid,
                                         box=tuple(round(x, 3) for x in inc["box"]),
                                         at_height_s=round(inc["last_in"] - inc["opened"], 1)))
         return events
@@ -150,17 +158,19 @@ class WorkerAtHeightPlugin(Plugin):
             levels.add(cls)
             extra = dict(near_edge=inc["near_edge"], at_height_s=round(frame.ts - inc["opened"], 1))
             if v:
-                extra.update({k: v[k] for k in ("harness", "helmet", "harness_confidence", "helmet_confidence", "notes")})
+                extra.update({k: v[k] for k in (*ITEMS, *(f"{i}_confidence" for i in ITEMS), "notes")})
             out.append(event(self, frame, cls, severity=severity, incident=f"{tid}@{inc['opened']:.1f}", confidence=1.0, track_id=tid,
                              box=tuple(round(x, 3) for x in inc["box"]), **extra))
 
+        if not levels and inc["last_in"] - inc["opened"] >= self.entered_after_s:
+            emit("at_height_entered", "warning")  # low: stayed in the zone, nothing high yet
         if v and v["violation"]:
             if inc["near_edge"] and "at_height_critical" not in levels:
                 emit("at_height_critical", "critical")
             elif not inc["near_edge"] and not levels & {"at_height_violation", "at_height_critical"}:
-                emit("at_height_violation", "warning")
+                emit("at_height_violation", "critical")  # high
         elif v is None and "at_height_unverified" not in levels:
             limit = self.edge_unverified_s if inc["near_edge"] else self.unverified_s
             if frame.ts - inc["opened"] >= limit:
-                emit("at_height_unverified", "warning")
+                emit("at_height_unverified", "critical")  # high
         return out

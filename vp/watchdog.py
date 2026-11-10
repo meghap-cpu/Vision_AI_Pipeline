@@ -20,16 +20,17 @@ class CameraWatchdog:
             silent = now - self.last_seen[i]
             if self.offline_since[i] is None and silent > self.offline_after:
                 self.offline_since[i] = self.last_seen[i]
-                events.append(self._event(cam, "camera_offline", "warning", now, silent_s=round(silent, 1)))
+                events.append(self._event(cam, "camera_offline", "warning", now, f"offline:{int(self.offline_since[i])}",
+                                          silent_s=round(silent, 1)))
             elif self.offline_since[i] is not None and silent < 2.0:
-                down = round(self.last_seen[i] - self.offline_since[i], 1)
+                since, down = self.offline_since[i], round(self.last_seen[i] - self.offline_since[i], 1)
                 self.offline_since[i] = None
-                events.append(self._event(cam, "camera_online", "info", now, offline_for_s=down))
+                events.append(self._event(cam, "camera_online", "info", now, f"offline:{int(since)}", offline_for_s=down))
         for ev in events:
             self.outbox.add(ev)
         return events
 
     @staticmethod
-    def _event(cam, cls, severity, ts, **extra):
-        return {"use_case": "health", "camera_id": cam, "ts": ts, "class": cls, "severity": severity,
+    def _event(cam, cls, severity, ts, incident, **extra):
+        return {"use_case": "health", "camera_id": cam, "ts": ts, "class": cls, "severity": severity, "incident": incident,
                 "confidence": 1.0, "track_id": None, "extra": extra}

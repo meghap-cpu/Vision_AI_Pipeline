@@ -30,7 +30,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             answer = open(ANSWER_FILE).read().strip()
         except FileNotFoundError:
-            answer = '{"fire": false, "smoke": false}'
+            answer = '{"fire": false, "smoke": false, "harness": true, "helmet": true, "vest": true, "harness_confidence": "high", "helmet_confidence": "high", "vest_confidence": "high"}'
         if a.fenced:
             answer = f"```json\n{answer}\n```"
         with lock:
