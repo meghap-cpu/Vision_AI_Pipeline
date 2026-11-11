@@ -1,0 +1,9 @@
+# keep the build context small: data, models, videos and history never go into the image
+.git
+data
+models
+recordings
+hub
+tools
+*.log
+**/__pycache__

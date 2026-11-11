@@ -1,0 +1,20 @@
+# The vision node as a container. Production: jetsons with SSDs. Pilot: a test of the architecture.
+# Run from ~/vision-pipeline:  docker compose -f docker/compose.node.yaml up -d --build
+# Stop the bare node first (sudo systemctl stop vision-node): both use the same cams, data and models.
+# On the host, clocks still need locking at boot (jetson_clocks); the container can't do that.
+services:
+  vision-node:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jetson
+    image: vision-pipeline:jetson
+    runtime: nvidia
+    network_mode: host          # cams, hub and VLM are reached exactly as from the host
+    restart: unless-stopped     # also restarts after a settings change (exit 3) and after a reboot
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    shm_size: 1gb
+    volumes:
+      - ../models/trt-10.3.0.26:/app/models                                  # ONNX + engines built on this jetson
+      - ../data:/app/data                                      # outbox, snapshots, settings copy
+      - ../config/bootstrap.yaml:/app/config/bootstrap.yaml:ro # who this jetson is

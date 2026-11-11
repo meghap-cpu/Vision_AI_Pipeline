@@ -1,0 +1,13 @@
+# Locks the jetson's clocks at boot (full, steady speed). The normal node's service does this itself;
+# a jetson running the node as a container needs this instead. Install: see tools/install_node.sh notes.
+[Unit]
+Description=Lock jetson clocks at boot
+After=nvpmodel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/jetson_clocks
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

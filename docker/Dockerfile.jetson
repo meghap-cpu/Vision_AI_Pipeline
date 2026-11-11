@@ -1,0 +1,24 @@
+# vision-pipeline for Jetson (JetPack 6, DeepStream 7.1), built on the jetson itself.
+# Same library baseline as the pilot where the base image allows (numpy 1.21.5 from apt, pyds 1.2.0, PyYAML 6.0.3).
+# Models, engines, data and this jetson's bootstrap.yaml are mounted from the host (docker/compose.node.yaml),
+# so one image serves every jetson. The output parsers are compiled on the host first (tools/install_node.sh, step 4):
+# NVIDIA's image has no CUDA headers and its package source is not reachable from outside NVIDIA.
+FROM nvcr.io/nvidia/deepstream:7.1-samples-multiarch
+# NVIDIA's image deletes FFmpeg's library files but keeps their package records, so they are reinstalled
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-gi python3-gst-1.0 python3-numpy python3-yaml python3-pip libpython3.10 gstreamer1.0-libav \
+    && apt-get install -y --reinstall --no-install-recommends \
+        libavcodec58 libavformat58 libavutil56 libswscale5 libswresample3 \
+    && rm -rf /var/lib/apt/lists/*
+# OpenCV: the pilot uses JetPack's own 4.8.0, which is not in this image; headless 4.7 is the newest wheel that works with numpy 1.21 (4.8 needs 1.22+)
+RUN pip3 install --no-cache-dir --no-deps \
+        "https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.2.0/pyds-1.2.0-cp310-cp310-linux_aarch64.whl" \
+        "PyYAML==6.0.3" "opencv-python-headless==4.7.0.72" \
+    && python3 -c "import numpy, cv2, yaml, gi; print('numpy', numpy.__version__, '| cv2', cv2.__version__, '| yaml', yaml.__version__)"
+WORKDIR /app
+COPY parsers/*.so parsers/
+COPY vp vp
+COPY config config
+COPY tests tests
+# Settings come from the hub; bootstrap.yaml (mounted) says who this jetson is and where the hub is
+CMD ["python3", "-u", "-m", "vp.main", "config/bootstrap.yaml"]
