@@ -11,7 +11,9 @@ def to_safety_alert(e, evidence_base):
            "snapshot": f"{evidence_base}{e['event_id']}" if e.get("has_evidence") else None, "clip": None,
            "time": e["timestamp"], "incident_id": e.get("incident_id"), "event_id": e["event_id"],
            "node": e.get("node_id"), "site": e.get("site_id")}
-    if e["use_case"] == "health" and e["camera_id"] == "node":  # node_down / node_up: name the node
+    if e["use_case"] == "health" and e["camera_id"] == "hub":  # the hub's own disk_low / disk_ok
+        msg.update(rule="Hub health", instance=e.get("node_id"), camera=None)
+    elif e["use_case"] == "health" and e["camera_id"] == "node":  # node_down / node_up: name the node
         msg.update(rule="Edge node health", instance=e.get("node_id"), camera=None)
     elif e["use_case"] == "health":  # camera_offline / camera_online: name the camera
         msg.update(rule="Camera health", instance=e["camera_id"])

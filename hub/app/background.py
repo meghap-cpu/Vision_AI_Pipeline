@@ -6,6 +6,7 @@
    its next report raises node_up, which closes the incident."""
 import json
 import os
+import shutil
 from pathlib import Path
 import threading
 import time
@@ -25,6 +26,8 @@ EVIDENCE_KEEP_DAYS = float(os.environ.get("EVIDENCE_KEEP_DAYS", "30"))
 EVIDENCE_MAX_GB = float(os.environ.get("EVIDENCE_MAX_GB", "20"))
 EVENTS_KEEP_DAYS = float(os.environ.get("EVENTS_KEEP_DAYS", "90"))
 RECENT_S = 3600  # photos from the last hour are never deleted, even over the cap
+HUB_ID = os.environ.get("HUB_ID", "hub")
+DISK_WARN_GB = float(os.environ.get("HUB_DISK_WARN_GB", "2"))  # hub's own disk alert; 0 = off
 ENDS = ["motion_end", "crowd_end", "object_removed", "man_down_end", "fire_smoke_end", "at_height_end", "node_up", "camera_online", "vlm_up", "disk_ok", "storage_ok"]
 
 
@@ -147,10 +150,41 @@ def retention_once(pool):
     return stats
 
 
+def hub_event(c, cls, severity, incident, extra):
+    c.execute("INSERT INTO events (event_id, incident_id, ts, node_id, camera_id, use_case, class, severity, "
+              "confidence, extra) VALUES (%s, %s, now(), %s, 'hub', 'health', %s, %s, 1.0, %s)",
+              (uuid.uuid4(), incident, HUB_ID, cls, severity, json.dumps(extra)))
+
+
+def disk_check(pool, free_bytes=None):
+    """The hub's own disk: disk_low (warning) under DISK_WARN_GB free, disk_ok (same incident) once 0.5 GB over.
+    The open/closed state is read from the events table, so a hub restart never repeats the alert."""
+    if DISK_WARN_GB <= 0:
+        return None
+    free = shutil.disk_usage(EVIDENCE).free if free_bytes is None else free_bytes
+    with pool.connection() as c:
+        last = c.execute("SELECT class, incident_id FROM events WHERE camera_id = 'hub' AND class IN ('disk_low', 'disk_ok') "
+                         "ORDER BY ts DESC, received DESC LIMIT 1").fetchone()
+        low_open, gb = last is not None and last["class"] == "disk_low", round(free / 1e9, 2)
+        if not low_open and free < DISK_WARN_GB * 1e9:
+            hub_event(c, "disk_low", "warning", f"{HUB_ID}:health:disk_low:{uuid.uuid4().hex[:12]}", {"free_gb": gb})
+            return "disk_low"
+        if low_open and free >= (DISK_WARN_GB + 0.5) * 1e9:
+            hub_event(c, "disk_ok", "info", last["incident_id"], {"free_gb": gb})
+            return "disk_ok"
+    return None
+
+
 def _retention(pool):
     print(f"retention: photos {EVIDENCE_KEEP_DAYS:g} days / {EVIDENCE_MAX_GB:g} GB, events {EVENTS_KEEP_DAYS:g} days; "
           "photos of unsent alerts are never deleted", flush=True)
     while True:
+        try:
+            d = disk_check(pool)
+            if d:
+                print(f"hub disk: {d}", flush=True)
+        except Exception as e:
+            print(f"hub disk: {type(e).__name__}: {str(e)[:150]}", flush=True)
         try:
             s = retention_once(pool)
             if s["photos_deleted"] or s["events_deleted"]:
