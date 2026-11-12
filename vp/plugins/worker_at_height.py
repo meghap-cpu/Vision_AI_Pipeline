@@ -84,7 +84,7 @@ class WorkerAtHeightPlugin(Plugin):
         self.error_every_s = g("error_every_s", 60.0)
         v = g("vlm", {})
         self.client = VLMClient(v.get("url", "http://127.0.0.1:8000/v1"), v.get("model", "qwen3-vl"),
-                                v.get("timeout_s", 30.0), max_in_flight=g("max_in_flight", 2))
+                                v.get("timeout_s", 30.0), max_in_flight=g("max_in_flight", 2), backup_url=v.get("backup_url"))
         self.image, self.image_ts, self.incidents, self.last_error = None, -1e9, {}, -1e9
 
     def _place(self, box):

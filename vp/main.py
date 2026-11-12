@@ -95,7 +95,9 @@ def main(path="config/node.yaml"):
     uploader = Uploader(outbox, settings.hub["url"]) if settings.hub.get("url") else None
     retention = Retention(outbox, os.path.join(settings.data_dir, "snapshots"), settings.retention)
     if settings.vlm.get("url") and any(getattr(REGISTRY[uc], "uses_vlm", False) for c in cams for uc in c.use_cases):
-        VLMWatch(settings.vlm["url"], outbox).start()  # one vlm_down alert for the node, not one per camera
+        for url in (settings.vlm["url"], settings.vlm.get("backup_url")):  # one watch per VLM server
+            if url:
+                VLMWatch(url, outbox).start()  # one vlm_down alert per server, not one per camera
     health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, lambda: {
         "settings_source": source, "cameras_fps": status.get("fps"), "dropped_frames": stats["dropped"],
         "cameras_offline": [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],

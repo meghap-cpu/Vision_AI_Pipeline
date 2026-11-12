@@ -45,7 +45,8 @@ def run():
         print(f"{name:7s} -> {[(e['class'], e['severity'], e['incident']) for e in evs]}")
     got = [(e["class"], e["severity"]) for e in box.events]
     assert got == [("vlm_down", "warning"), ("vlm_up", "info")], f"unexpected events: {got}"
-    assert box.events[0]["incident"] == box.events[1]["incident"] == "vlm:down:60", "down and up must share one incident"
+    assert box.events[0]["incident"] == box.events[1]["incident"] == f"vlm:127.0.0.1:{vlm.port}:down:60", \
+        "down and up must share one incident, named after the server"
     assert box.events[1]["extra"]["down_for_s"] == 60
     print("PASS: one vlm_down after 2 failed checks, no repeats while down, vlm_up closes the same incident")
     vlm.stop()

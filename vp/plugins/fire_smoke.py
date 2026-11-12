@@ -23,7 +23,7 @@ class FireSmokePlugin(Plugin):
         self.error_every_s = g("error_every_s", 60.0)
         v = g("vlm", {})
         self.client = VLMClient(v.get("url", "http://127.0.0.1:8000/v1"), v.get("model", "qwen3-vl"),
-                                v.get("timeout_s", 30.0), max_in_flight=1)
+                                v.get("timeout_s", 30.0), max_in_flight=1, backup_url=v.get("backup_url"))
         self.batch, self.pending = [], None
         self.pos = self.neg = 0
         self.active, self.started, self.last_error = False, None, -1e9

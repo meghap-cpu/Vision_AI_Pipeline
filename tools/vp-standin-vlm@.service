@@ -1,0 +1,18 @@
+# TEST BENCH ONLY (pilot): stand-in VLM on port %i. One per port: vp-standin-vlm@8001 (main), @8002 (backup).
+# Never install on production jetsons: they use the real VLM jetsons. Log: /tmp/standin_vlm_%i.log
+[Unit]
+Description=Vision pilot test bench: stand-in VLM on port %i
+After=network-online.target
+
+[Service]
+User=megha
+WorkingDirectory=/home/megha/vision-pipeline
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 tools/standin_vlm.py --port %i --delay 1.7
+StandardOutput=append:/tmp/standin_vlm_%i.log
+StandardError=inherit
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

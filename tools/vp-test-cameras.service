@@ -1,0 +1,16 @@
+# TEST BENCH ONLY (pilot): starts mediamtx and 16 looping fake RTSP cameras at boot.
+# Never install on production jetsons: they have real cameras.
+[Unit]
+Description=Vision pilot test bench: 16 fake RTSP cameras
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=megha
+WorkingDirectory=/home/megha/vision-pipeline
+ExecStart=/home/megha/vision-pipeline/tools/start_test_cameras.sh 16
+
+[Install]
+WantedBy=multi-user.target

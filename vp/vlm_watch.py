@@ -7,11 +7,13 @@ incident, which closes it. Runs in its own thread, so a slow or dead VLM never h
 import threading
 import time
 import urllib.request
+from urllib.parse import urlsplit
 
 
 class VLMWatch:
     def __init__(self, url, outbox, every_s=30.0, fails_to_alert=2, timeout_s=5.0):
         self.url = url.rstrip("/") + "/models"
+        self.server = urlsplit(url).netloc  # host:port, names the VLM server in alerts
         self.outbox, self.every, self.fails_to_alert, self.timeout = outbox, every_s, fails_to_alert, timeout_s
         self.fails, self.down_since = 0, None
 
@@ -39,18 +41,19 @@ class VLMWatch:
         if self.reachable():
             self.fails = 0
             if self.down_since is not None:
-                events.append(self._event("vlm_up", "info", now, self.down_since, down_for_s=round(now - self.down_since)))
+                events.append(self._event("vlm_up", "info", now, self.down_since, server=self.server,
+                                          down_for_s=round(now - self.down_since)))
                 self.down_since = None
         else:
             self.fails += 1
             if self.down_since is None and self.fails >= self.fails_to_alert:
                 self.down_since = now
-                events.append(self._event("vlm_down", "warning", now, now, url=self.url, failed_checks=self.fails))
+                events.append(self._event("vlm_down", "warning", now, now, server=self.server, url=self.url,
+                                          failed_checks=self.fails))
         for ev in events:
             self.outbox.add(ev)
         return events
 
-    @staticmethod
-    def _event(cls, severity, ts, since, **extra):
+    def _event(self, cls, severity, ts, since, **extra):
         return {"use_case": "health", "camera_id": "node", "ts": ts, "class": cls, "severity": severity,
-                "incident": f"vlm:down:{int(since)}", "confidence": 1.0, "track_id": None, "extra": extra}
+                "incident": f"vlm:{self.server}:down:{int(since)}", "confidence": 1.0, "track_id": None, "extra": extra}
