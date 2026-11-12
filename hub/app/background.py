@@ -13,6 +13,7 @@ import time
 import uuid
 from zoneinfo import ZoneInfo
 
+from . import failover
 from .alert_format import to_safety_alert
 
 BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "")
@@ -22,6 +23,7 @@ SITE_TZ = ZoneInfo(os.environ.get("SITE_TZ", "UTC"))
 DOWN_AFTER_S = int(os.environ.get("NODE_DOWN_AFTER_S", "120"))
 # Clean-up (3rd background job): evidence photos and old events, like the nodes' own retention
 EVIDENCE = Path(os.environ.get("EVIDENCE_DIR", "/data/evidence"))
+CONFIGS = Path(os.environ.get("CONFIG_DIR", "/data/configs"))
 EVIDENCE_KEEP_DAYS = float(os.environ.get("EVIDENCE_KEEP_DAYS", "30"))
 EVIDENCE_MAX_GB = float(os.environ.get("EVIDENCE_MAX_GB", "20"))
 EVENTS_KEEP_DAYS = float(os.environ.get("EVENTS_KEEP_DAYS", "90"))
@@ -77,6 +79,21 @@ def _publisher(pool):
             time.sleep(5)
 
 
+def _failover_event(c, n):
+    """Says who now watches a down node's cameras, and which are not watched at all (warning)."""
+    down = {r["node_id"] for r in c.execute("SELECT node_id FROM nodes WHERE down_since IS NOT NULL").fetchall()}
+    try:
+        spare, covered, left = failover.plan(n["node_id"], CONFIGS, down)
+    except Exception as e:
+        print(f"failover: {type(e).__name__}: {str(e)[:150]}", flush=True)
+        return
+    if not spare and not left:
+        return  # no failover set up for this node
+    node_event(c, n["node_id"], n["site_id"], "failover", "warning" if left else "info", n["last_seen"],
+               {"spare": spare, "covered": covered, "not_covered": left})
+    print(f"failover: {n['node_id']} -> {spare}: {len(covered)} cameras covered, {len(left)} not covered", flush=True)
+
+
 def _monitor(pool):
     while True:
         try:
@@ -88,6 +105,7 @@ def _monitor(pool):
                     node_event(c, n["node_id"], n["site_id"], "node_down", "critical", n["last_seen"],
                                {"last_seen": n["last_seen"].isoformat(), "down_after_s": DOWN_AFTER_S})
                     print(f"node {n['node_id']}: DOWN (no health report since {n['last_seen']:%H:%M:%S})", flush=True)
+                    _failover_event(c, n)
         except Exception as e:
             print(f"node monitor: {type(e).__name__}: {str(e)[:150]}", flush=True)
         time.sleep(15)

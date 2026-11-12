@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from . import background
+from . import background, failover
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://vision:change-me@localhost:5432/vision")
 EVIDENCE = Path(os.environ.get("EVIDENCE_DIR", "/data/evidence"))
@@ -131,7 +131,10 @@ def node_config(node_id: str):
     path = CONFIGS / f"{node_id}.yaml"
     if not NODE_ID.match(node_id) or not path.exists():
         raise HTTPException(404, "no settings for this node")
-    return PlainTextResponse(path.read_text(), media_type="text/yaml")
+    with pool.connection() as c:  # nodes that are down right now: their spare also gets their cameras
+        down = {r["node_id"] for r in c.execute("SELECT node_id FROM nodes WHERE down_since IS NOT NULL").fetchall()}
+    text, cover = failover.settings_for(node_id, CONFIGS, down)
+    return PlainTextResponse(text, media_type="text/yaml")
 
 
 @app.get("/api/v1/nodes")
