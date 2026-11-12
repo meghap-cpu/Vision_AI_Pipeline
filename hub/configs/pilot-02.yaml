@@ -1,0 +1,185 @@
+# Made by tools/make_node_config.py from hub/configs/pilot-01.yaml (cam01->cam16, cam03->cam17, cam05->cam18, cam07->cam19, cam08->cam20, cam09->cam21, cam11->cam22, cam13->cam23)
+node_id: pilot-02
+site_id: camp-01
+engine:
+  pgie_config: config/pgie_yolo26.txt
+  tracker_lib: /opt/nvidia/deepstream/deepstream-7.1/lib/libnvds_nvmultiobjecttracker.so
+  tracker_config: /opt/nvidia/deepstream/deepstream-7.1/samples/configs/deepstream-app/config_tracker_NvSORT.yml
+  max_batch: 16
+  width: 1280
+  height: 720
+cameras:
+- id: cam16
+  uri: rtsp://127.0.0.1:8554/cam0
+  source_fps: 30
+  analysis_fps: 5
+  use_cases:
+    motion:
+      zone:
+      - 0.0
+      - 0.3
+      - 1.0
+      - 1.0
+- id: cam17
+  uri: rtsp://127.0.0.1:8554/cam1
+  source_fps: 30
+  analysis_fps: 5
+  use_cases:
+    crowd:
+      min_people: 3
+- id: cam18
+  uri: rtsp://127.0.0.1:8554/cam2
+  source_fps: 30
+  analysis_fps: 5
+  use_cases:
+    housekeeping:
+      zone:
+      - 0.0
+      - 0.45
+      - 0.35
+      - 1.0
+- id: cam19
+  uri: rtsp://127.0.0.1:8554/cam3
+  source_fps: 30
+  analysis_fps: 5
+  use_cases: {}
+- id: cam20
+  uri: rtsp://127.0.0.1:8554/cam4
+  source_fps: 30
+  analysis_fps: 5
+  use_cases: {}
+- id: cam21
+  uri: rtsp://127.0.0.1:8554/cam5
+  source_fps: 30
+  analysis_fps: 5
+  use_cases:
+    man_down:
+      debug_every_s: 0
+- id: cam22
+  uri: rtsp://127.0.0.1:8554/cam6
+  source_fps: 30
+  analysis_fps: 5
+  use_cases: {}
+- id: cam23
+  uri: rtsp://127.0.0.1:8554/cam7
+  source_fps: 30
+  analysis_fps: 5
+  use_cases: {}
+models:
+- name: ppe
+  config: config/pgie_ppe.txt
+  gie_id: 3
+  input:
+  - 3
+  - 560
+  - 560
+  tensor: image
+  cameras:
+  - cam19
+  - cam20
+- name: pose
+  config: config/sgie_pose.txt
+  gie_id: 4
+  crop: pose
+  cameras:
+  - cam21
+vlm:
+  url: http://192.168.0.139:8001/v1
+  backup_url: http://192.168.0.139:8002/v1
+  _real_url: http://192.168.0.119:8010/v1
+  model: cpatonn/Qwen3-VL-4B-Instruct-AWQ-4bit
+  timeout_s: 30
+hub:
+  url: http://192.168.0.154:8100
+retention:
+  max_memory_gb: 8
+  snapshot_keep_hours: 24
+  snapshot_max_gb: 2
+  outbox_keep_days: 7
+  disk_warn_free_gb: 2
+model_versions:
+  ppe: ppe-merged rfdetr v1
+  man_down: rtmpose-m
+  fire_smoke: qwen3-vl-4b-awq
+  worker_at_height: qwen3-vl-4b-awq
+  crowd: yolo26s
+  housekeeping: yolo26s + background
+  motion: background model
+detection_types:
+  ppe:
+    model: PPE
+    version: v2.3
+    confidence: 0.5
+    stability:
+    - 8
+    - 10
+    min_object_px: 48
+    calibrations:
+      cam19:
+        confidence: 0.55
+  fire_smoke:
+    model: Fire & Smoke
+    version: v3.0
+  worker_at_height:
+    model: Harness check (VLM)
+    version: qwen3-vl-4b
+  line:
+    model: Line Crossing
+    version: v1.0
+    use_case: line_crossing
+rules:
+- name: Helmet Compliance
+  detection: ppe
+  item: hardhat
+  severity: High
+  status: Active
+  instances:
+  - camera: cam19
+    instance: Workshop A
+    duration_s: 10
+    cooldown_s: 300
+  - camera: cam20
+    instance: Electric room
+    duration_s: 10
+    cooldown_s: 300
+- name: Safety Vest
+  detection: ppe
+  item: vest
+  severity: Medium
+  status: Active
+  instances:
+  - camera: cam20
+    instance: Electric room
+    duration_s: 10
+    cooldown_s: 300
+- name: Harness at Height
+  detection: worker_at_height
+  status: Active
+  instances:
+  - zones:
+    - - - 0.0
+        - 0.45
+      - - 0.35
+        - 0.45
+      - - 0.35
+        - 1.0
+      - - 0.0
+        - 1.0
+    edges:
+    - - - 0.3
+        - 0.45
+      - - 0.3
+        - 1.0
+    camera: cam23
+    instance: Scaffold A
+- name: Fire and Smoke
+  detection: fire_smoke
+  severity: High
+  status: Active
+  instances:
+  - camera: cam22
+    instance: Kitchen
+- name: Line Crossing - Gates
+  detection: line
+  status: Draft
+  instances: []
