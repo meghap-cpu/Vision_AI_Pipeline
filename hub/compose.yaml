@@ -43,6 +43,9 @@ services:
       HUB_PUBLIC_URL: ${HUB_PUBLIC_URL:-http://localhost:8100}
       SITE_TZ: ${SITE_TZ:-UTC}
       NODE_DOWN_AFTER_S: ${NODE_DOWN_AFTER_S:-120}
+      EVIDENCE_KEEP_DAYS: ${EVIDENCE_KEEP_DAYS:-30}   # clean-up: photos older than this go (if sent)
+      EVIDENCE_MAX_GB: ${EVIDENCE_MAX_GB:-20}         # and the oldest sent ones go while over this
+      EVENTS_KEEP_DAYS: ${EVENTS_KEEP_DAYS:-90}
     volumes:
       - evidence:/data/evidence
       - ./configs:/data/configs:ro

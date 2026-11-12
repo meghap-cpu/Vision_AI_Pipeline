@@ -45,7 +45,7 @@ class FireSmokePlugin(Plugin):
         except Exception as e:  # VLM unreachable or failed: say so, at most once per error_every_s
             if frame.ts - self.last_error >= self.error_every_s:
                 self.last_error = frame.ts
-                return [event(self, frame, "vlm_error", severity="warning", error=str(e)[:200])]
+                return [event(self, frame, "vlm_error", severity="info", error=str(e)[:200])]  # alert: vlm_down
             return []
         ans = r["answer"]
         if not isinstance(ans, dict):

@@ -6,6 +6,7 @@
    its next report raises node_up, which closes the incident."""
 import json
 import os
+from pathlib import Path
 import threading
 import time
 import uuid
@@ -18,7 +19,13 @@ TOPIC = os.environ.get("KAFKA_TOPIC", "safety.alerts")
 PUBLIC_URL = os.environ.get("HUB_PUBLIC_URL", "http://localhost:8100").rstrip("/")
 SITE_TZ = ZoneInfo(os.environ.get("SITE_TZ", "UTC"))
 DOWN_AFTER_S = int(os.environ.get("NODE_DOWN_AFTER_S", "120"))
-ENDS = ["motion_end", "crowd_end", "object_removed", "man_down_end", "fire_smoke_end", "at_height_end", "node_up", "camera_online"]
+# Clean-up (3rd background job): evidence photos and old events, like the nodes' own retention
+EVIDENCE = Path(os.environ.get("EVIDENCE_DIR", "/data/evidence"))
+EVIDENCE_KEEP_DAYS = float(os.environ.get("EVIDENCE_KEEP_DAYS", "30"))
+EVIDENCE_MAX_GB = float(os.environ.get("EVIDENCE_MAX_GB", "20"))
+EVENTS_KEEP_DAYS = float(os.environ.get("EVENTS_KEEP_DAYS", "90"))
+RECENT_S = 3600  # photos from the last hour are never deleted, even over the cap
+ENDS = ["motion_end", "crowd_end", "object_removed", "man_down_end", "fire_smoke_end", "at_height_end", "node_up", "camera_online", "vlm_up", "disk_ok", "storage_ok"]
 
 
 def node_event(c, node_id, site_id, cls, severity, since, extra):
@@ -83,8 +90,79 @@ def _monitor(pool):
         time.sleep(15)
 
 
+def _drop_evidence(c, ids):
+    """Deletes these events' photos and marks them as having none. Returns bytes freed."""
+    freed = 0
+    for i in ids:
+        f = EVIDENCE / f"{i}.jpg"
+        try:
+            freed += f.stat().st_size
+            f.unlink()
+        except FileNotFoundError:
+            pass
+    c.execute("UPDATE events SET has_evidence = false WHERE event_id = ANY(%s::uuid[])", (ids,))
+    return freed
+
+
+def evidence_bytes():
+    with os.scandir(EVIDENCE) as it:
+        return sum(e.stat().st_size for e in it if e.is_file())
+
+
+def retention_once(pool):
+    """1. photos of sent alerts older than EVIDENCE_KEEP_DAYS; 2. while photos exceed EVIDENCE_MAX_GB, the oldest
+    photos of sent alerts (never from the last hour); 3. sent events older than EVENTS_KEEP_DAYS.
+    A photo whose alert is not yet in Kafka is never deleted: CampNeuron will still need it."""
+    stats = {"photos_deleted": 0, "gb_freed": 0.0, "events_deleted": 0}
+    with pool.connection() as c:
+        old = [r["event_id"] for r in c.execute(
+            "SELECT event_id::text AS event_id FROM events WHERE has_evidence AND published "
+            "AND ts < now() - make_interval(secs => %s)", (EVIDENCE_KEEP_DAYS * 86400,)).fetchall()]
+        if old:
+            stats["gb_freed"] += _drop_evidence(c, old) / 1e9
+            stats["photos_deleted"] += len(old)
+        size, cap = evidence_bytes(), EVIDENCE_MAX_GB * 1e9
+        while size > cap:
+            batch = [r["event_id"] for r in c.execute(
+                "SELECT event_id::text AS event_id FROM events WHERE has_evidence AND published "
+                "AND ts < now() - make_interval(secs => %s) ORDER BY ts LIMIT 500", (RECENT_S,)).fetchall()]
+            if not batch:
+                break  # what is left is unsent or from the last hour: kept
+            take = []
+            for i in batch:  # oldest first, and stop as soon as we are under the cap
+                if size <= cap:
+                    break
+                try:
+                    size -= (EVIDENCE / f"{i}.jpg").stat().st_size
+                except FileNotFoundError:
+                    pass
+                take.append(i)
+            stats["gb_freed"] += _drop_evidence(c, take) / 1e9
+            stats["photos_deleted"] += len(take)
+        stats["events_deleted"] = c.execute(
+            "DELETE FROM events WHERE published AND NOT has_evidence AND ts < now() - make_interval(secs => %s)",
+            (EVENTS_KEEP_DAYS * 86400,)).rowcount
+    stats["gb_freed"] = round(stats["gb_freed"], 2)
+    stats["photos_gb_now"] = round(evidence_bytes() / 1e9, 2)
+    return stats
+
+
+def _retention(pool):
+    print(f"retention: photos {EVIDENCE_KEEP_DAYS:g} days / {EVIDENCE_MAX_GB:g} GB, events {EVENTS_KEEP_DAYS:g} days; "
+          "photos of unsent alerts are never deleted", flush=True)
+    while True:
+        try:
+            s = retention_once(pool)
+            if s["photos_deleted"] or s["events_deleted"]:
+                print(f"retention: {s}", flush=True)
+        except Exception as e:
+            print(f"retention: {type(e).__name__}: {str(e)[:150]}", flush=True)
+        time.sleep(600)
+
+
 def start(pool):
     threading.Thread(target=_monitor, args=(pool,), daemon=True).start()
+    threading.Thread(target=_retention, args=(pool,), daemon=True).start()
     if BOOTSTRAP:
         threading.Thread(target=_publisher, args=(pool,), daemon=True).start()
     else:

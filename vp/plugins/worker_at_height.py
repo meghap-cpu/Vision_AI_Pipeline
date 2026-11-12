@@ -144,7 +144,7 @@ class WorkerAtHeightPlugin(Plugin):
         except Exception as e:
             if frame.ts - self.last_error >= self.error_every_s:
                 self.last_error = frame.ts
-                return [event(self, frame, "vlm_error", severity="warning", error=str(e)[:200])]
+                return [event(self, frame, "vlm_error", severity="info", error=str(e)[:200])]  # alert: vlm_down
             return []
         verdict = parse_ppe(r["answer"])
         if verdict is not None:  # unreadable: stays unverified and is asked again

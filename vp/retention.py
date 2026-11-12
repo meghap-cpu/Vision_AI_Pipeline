@@ -2,7 +2,8 @@
 - deletes snapshots the hub already has, once older than snapshot_keep_hours;
 - if the snapshot folder is still over snapshot_max_gb, deletes the oldest snapshots the hub already has;
 - deletes sent events from the outbox after outbox_keep_days;
-- warns (at most hourly) if free disk is under disk_warn_free_gb, or if only undelivered snapshots exceed the cap.
+- warns once when free disk drops under disk_warn_free_gb (disk_low) or only undelivered snapshots exceed the cap
+  (storage_full), and sends disk_ok / storage_ok with the same incident when it recovers, which closes it.
 Anything not yet delivered to the hub is never deleted."""
 import os
 import shutil
@@ -18,7 +19,7 @@ class Retention:
         self.max_bytes = g("snapshot_max_gb", 2.0) * 1e9
         self.outbox_keep_s = g("outbox_keep_days", 7) * 86400
         self.warn_free = g("disk_warn_free_gb", 2.0) * 1e9
-        self.last_warn, self.stats = {}, {"snapshots_deleted": 0, "events_pruned": 0}
+        self.open, self.stats = {}, {"snapshots_deleted": 0, "events_pruned": 0}  # open: problem -> since when
         if every_s:
             print(f"retention: snapshots {g('snapshot_keep_hours', 24)} h / {g('snapshot_max_gb', 2.0)} GB, "
                   f"sent events {g('outbox_keep_days', 7)} days; undelivered data is never deleted", flush=True)
@@ -46,11 +47,17 @@ class Retention:
         self.outbox.forget_snapshots(paths)
         self.stats["snapshots_deleted"] += len(paths)
 
-    def _warn(self, cls, now, **extra):
-        if now - self.last_warn.get(cls, -1e9) >= 3600:
-            self.last_warn[cls] = now
+    def _condition(self, cls, bad, now, ok_cls, **extra):
+        """One warning when a problem starts, one info (ok_cls) when it ends, both in the same incident."""
+        since = self.open.get(cls)
+        if bad and since is None:
+            self.open[cls] = now
             self.outbox.add({"camera_id": "node", "use_case": "health", "class": cls, "severity": "warning",
-                             "ts": now, "extra": extra})
+                             "ts": now, "incident": f"{cls}:{int(now)}", "extra": extra})
+        elif not bad and since is not None:
+            del self.open[cls]
+            self.outbox.add({"camera_id": "node", "use_case": "health", "class": ok_cls, "severity": "info",
+                             "ts": now, "incident": f"{cls}:{int(since)}", "extra": {**extra, "lasted_s": round(now - since)}})
 
     def run_once(self, now=None):
         now = now or time.time()
@@ -67,11 +74,11 @@ class Retention:
                     pass
                 doomed.append(path)
             self._delete(doomed)  # one batch: the outbox is busy for a moment, not for thousands of updates
-            if size > self.max_bytes:
-                self._warn("storage_full", now, snapshot_gb=round(size / 1e9, 3),
-                           note="only undelivered snapshots left: is the hub reachable?")
+        full = size > self.max_bytes
+        self._condition("storage_full", full, now, "storage_ok", snapshot_gb=round(size / 1e9, 3),
+                        **({"note": "only undelivered snapshots left: is the hub reachable?"} if full else {}))
         self.stats["events_pruned"] += self.outbox.prune_sent(older_than=now - self.outbox_keep_s)
         free = shutil.disk_usage(self.dir if os.path.isdir(self.dir) else "/").free
-        if free < self.warn_free:
-            self._warn("disk_low", now, free_gb=round(free / 1e9, 2))
+        margin = 0.5e9 if "disk_low" in self.open else 0  # close only once 0.5 GB past the line: no flapping
+        self._condition("disk_low", free < self.warn_free + margin, now, "disk_ok", free_gb=round(free / 1e9, 2))
         return dict(self.stats)
