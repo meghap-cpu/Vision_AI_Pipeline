@@ -1,0 +1,13 @@
+# Soak tests: logs the node container's memory every 10 min to data/soak_memory.log. Restarts if it ever stops.
+[Unit]
+Description=Vision node memory logger (soak test)
+After=docker.service
+
+[Service]
+User=megha
+ExecStart=/home/megha/vision-pipeline/tools/ctr_memlog.sh /home/megha/vision-pipeline/data/soak_memory.log
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
