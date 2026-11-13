@@ -147,7 +147,7 @@ vlm:
   model: cpatonn/Qwen3-VL-4B-Instruct-AWQ-4bit
   timeout_s: 30
 hub:
-  url: http://127.0.0.1:8100
+  url: http://192.168.0.154:8100
 retention:
   max_memory_gb: 8
   snapshot_keep_hours: 24
