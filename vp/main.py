@@ -27,6 +27,7 @@ from vp.pose import decode, pose_box, tensors
 from vp.plugins import REGISTRY
 from vp.remote_config import RESTART_CODE, load_node, watch
 from vp.router import CropStore, Router, SnapshotRequests
+from vp.supervisor import ErrorCounter, RestartPolicy
 from vp.settings import load
 from vp.snapshots import Snapshots
 from vp.watchdog import CameraWatchdog
@@ -87,6 +88,7 @@ def main(path="config/node.yaml"):
     settings, source, config_hash, config_url = load_node(path)
     print(f"settings from: {source}", flush=True)
     restart = {"needed": False}
+    failure = {"code": 0}  # 1 after a pipeline error or end of stream: the service or Docker restarts the node
     cams = settings.cameras
     W, H = settings.engine["width"], settings.engine["height"]
     os.makedirs(settings.data_dir, exist_ok=True)
@@ -102,13 +104,16 @@ def main(path="config/node.yaml"):
     health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, lambda: {
         "settings_source": source, "settings_version": config_hash[:12],  # the UI can confirm a change applied
         "cameras_fps": status.get("fps"), "dropped_frames": stats["dropped"],
-        "dropped_by_use_case": router.dropped_by_use_case(), "probe_errors": probe_errors["n"],
+        "dropped_by_use_case": router.dropped_by_use_case(), "probe_errors": sum(n for k, n in errors.counts.items() if k.startswith("probe")),
+        "loop_errors": {k: n for k, n in errors.counts.items() if not k.startswith("probe")},
+        "worker_restarts": dict(supervisor.restarts),
         "snapshots_expired": snap_requests.expired, "pose_crops_held": len(crop_store),
         "cameras_offline": [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
         "workers_alive": status.get("workers"), "unsent_alerts": outbox.unsent(),
         "snapshot_errors": snaps.errors, "node_rss_mb": status.get("rss_mb"), "snapshot_queue": snaps.q.qsize()},
         settings.hub.get("health_every_s", 30), settings.data_dir) if settings.hub.get("url") else None)
     workers = start_workers(settings, mp.get_context("spawn"))
+    supervisor = RestartPolicy()  # crashed workers restart at once, then after 5, 10, 20, 40, 60 s
     routes = [list(cam.use_cases) for cam in cams]
     pixel_zones = [{uc: ((p or {}).get("zone", [0, 0, 1, 1]), REGISTRY[uc].pixel_mode,
                          (p or {}).get("sample_every_s", REGISTRY[uc].pixels_every_s), REGISTRY[uc].pixel_max_width)
@@ -122,19 +127,12 @@ def main(path="config/node.yaml"):
                  if pose_models and pose_models[0].get("cameras") else None)
     HIDDEN = 99  # a person on a camera without pose is briefly marked as this class, so pose skips them
     crop_store = CropStore()  # (camera, frame, object id) -> (real box, crop pose saw); old entries pruned
-    probe_errors = {"n": 0}
+    errors = ErrorCounter(log=lambda m: print(m, flush=True))  # probes and timers: an error never escapes
 
     def safe(fn):
-        """A probe runs in DeepStream's video thread and must never raise there: count, log now and then, go on."""
+        """A probe runs in DeepStream's video thread and must never raise there."""
         def wrapped(pad, info):
-            try:
-                return fn(pad, info)
-            except Exception as e:
-                probe_errors["n"] += 1
-                n = probe_errors["n"]
-                if n == 1 or n % 100 == 0:
-                    print(f"probe error {n} in {fn.__name__}: {type(e).__name__}: {str(e)[:150]}", flush=True)
-                return Gst.PadProbeReturn.OK
+            return errors.run(f"probe {fn.__name__}", fn, pad, info, default=Gst.PadProbeReturn.OK)
         return wrapped
 
     def each_person(info, classes):
@@ -248,7 +246,9 @@ def main(path="config/node.yaml"):
 
     probe_pad.add_probe(Gst.PadProbeType.BUFFER, safe(probe))
 
-    def drain():
+    MAX_EVENTS_PER_DRAIN = 500  # per worker: a flood can't freeze the main loop; the rest wait 0.5 s
+
+    def drain_once():
         snap_requests.prune()  # requests of cameras that send no frames expire here
         for ev in watchdog.check():
             stats["events"]["health:" + ev["class"]] += 1
@@ -256,10 +256,13 @@ def main(path="config/node.yaml"):
             print(f"health: {ev['camera_id']} {ev['class']} {ev['extra']}", flush=True)
         for uc, w in workers.items():
             if not w.process.is_alive():
-                print(f"worker {uc} stopped (exit code {w.process.exitcode}); restarting", flush=True)
-                w.start()
+                if supervisor.check(uc, False):
+                    print(f"worker {uc} stopped (exit code {w.process.exitcode}); restart {supervisor.restarts[uc]}; "
+                          f"if it stops again, next restart after {supervisor.next_wait(uc)} s", flush=True)
+                    w.start()
                 continue
-            while True:
+            supervisor.check(uc, True)
+            for _ in range(MAX_EVENTS_PER_DRAIN):
                 try:
                     ev = w.events_q.get_nowait()
                 except queue.Empty:
@@ -270,11 +273,14 @@ def main(path="config/node.yaml"):
                 event_id = outbox.add(ev)
                 if not is_error and not ev["class"].endswith("_error") and ev.get("severity") in ("warning", "critical"):
                     snap_requests.add(ev["camera_id"], event_id, ev)
-        return True
+
+    def drain():
+        errors.run("drain", drain_once)
+        return True  # a GLib timer that returns anything else, or raises, is removed for good
 
     last = {"t": time.time(), "f": frames.copy()}
 
-    def report():
+    def report_once():
         now = time.time()
         dt = now - last["t"]
         fps = [(frames[i] - last["f"][i]) / dt for i in range(len(cams))]
@@ -313,15 +319,18 @@ def main(path="config/node.yaml"):
                 print(f"camera error at {where}: {err.message}", flush=True)
             else:
                 print(f"pipeline error at {where}: {err.message}", flush=True)
+                failure["code"] = 1
                 loop.quit()
         elif msg.type == Gst.MessageType.EOS:
+            print("pipeline ended (end of stream)", flush=True)
+            failure["code"] = 1
             loop.quit()
 
     bus = pipe.get_bus()
     bus.add_signal_watch()
     bus.connect("message", on_message)
     GLib.timeout_add(500, drain)
-    GLib.timeout_add_seconds(10, report)
+    GLib.timeout_add_seconds(10, lambda: errors.run("report", report_once) or True)
     for sig in (signal.SIGINT, signal.SIGTERM):
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, sig, loop.quit)
     print(f"[{settings.node_id}] starting {len(cams)} cameras, plugins: {list(workers)}", flush=True)
@@ -338,6 +347,9 @@ def main(path="config/node.yaml"):
         w.stop()
     if restart["needed"]:
         sys.exit(RESTART_CODE)
+    if failure["code"]:
+        print("exiting with code 1, so the service or Docker restarts the node", flush=True)
+        sys.exit(failure["code"])
 
 
 if __name__ == "__main__":
