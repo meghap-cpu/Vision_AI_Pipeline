@@ -26,6 +26,7 @@ from vp.pixels import crop_color, crop_zone
 from vp.pose import decode, pose_box, tensors
 from vp.plugins import REGISTRY
 from vp.remote_config import RESTART_CODE, load_node, watch
+from vp.router import CropStore, Router, SnapshotRequests
 from vp.settings import load
 from vp.snapshots import Snapshots
 from vp.watchdog import CameraWatchdog
@@ -101,6 +102,8 @@ def main(path="config/node.yaml"):
     health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, lambda: {
         "settings_source": source, "settings_version": config_hash[:12],  # the UI can confirm a change applied
         "cameras_fps": status.get("fps"), "dropped_frames": stats["dropped"],
+        "dropped_by_use_case": router.dropped_by_use_case(), "probe_errors": probe_errors["n"],
+        "snapshots_expired": snap_requests.expired, "pose_crops_held": len(crop_store),
         "cameras_offline": [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
         "workers_alive": status.get("workers"), "unsent_alerts": outbox.unsent(),
         "snapshot_errors": snaps.errors, "node_rss_mb": status.get("rss_mb"), "snapshot_queue": snaps.q.qsize()},
@@ -110,7 +113,7 @@ def main(path="config/node.yaml"):
     pixel_zones = [{uc: ((p or {}).get("zone", [0, 0, 1, 1]), REGISTRY[uc].pixel_mode,
                          (p or {}).get("sample_every_s", REGISTRY[uc].pixels_every_s), REGISTRY[uc].pixel_max_width)
                     for uc, p in cam.use_cases.items() if REGISTRY[uc].needs_pixels} for cam in cams]
-    last_pixels = {}  # (camera index, use case) -> when pixels were last sent
+    router = Router(routes, pixel_zones)  # which use cases get each frame, and when they get pixels
 
     Gst.init(None)
     pipe, probe_pad, model_elements = build(settings)
@@ -118,7 +121,21 @@ def main(path="config/node.yaml"):
     pose_cams = ({i for i, c in enumerate(cams) if c.id in pose_models[0]["cameras"]}
                  if pose_models and pose_models[0].get("cameras") else None)
     HIDDEN = 99  # a person on a camera without pose is briefly marked as this class, so pose skips them
-    crops, crops_lock = {}, threading.Lock()  # (camera, frame, object id) -> (real box, crop pose saw)
+    crop_store = CropStore()  # (camera, frame, object id) -> (real box, crop pose saw); old entries pruned
+    probe_errors = {"n": 0}
+
+    def safe(fn):
+        """A probe runs in DeepStream's video thread and must never raise there: count, log now and then, go on."""
+        def wrapped(pad, info):
+            try:
+                return fn(pad, info)
+            except Exception as e:
+                probe_errors["n"] += 1
+                n = probe_errors["n"]
+                if n == 1 or n % 100 == 0:
+                    print(f"probe error {n} in {fn.__name__}: {type(e).__name__}: {str(e)[:150]}", flush=True)
+                return Gst.PadProbeReturn.OK
+        return wrapped
 
     def each_person(info, classes):
         batch = pyds.gst_buffer_get_nvds_batch_meta(hash(info.get_buffer()))
@@ -147,29 +164,26 @@ def main(path="config/node.yaml"):
             r = om.rect_params
             real = (r.left, r.top, r.width, r.height)
             r.left, r.top, r.width, r.height = crop = pose_box(*real, W, H)
-            with crops_lock:
-                crops[key] = (real, crop)
+            crop_store.put(key, (real, crop))
         return Gst.PadProbeReturn.OK
 
     def restore(pad, info):  # after pose: everyone is a person again, with their real box
         for key, om in each_person(info, (0, HIDDEN)):
             om.class_id = 0
-            with crops_lock:
-                saved = crops.get(key)
+            saved = crop_store.get(key)
             if saved:
                 r = om.rect_params
                 r.left, r.top, r.width, r.height = saved[0]
         return Gst.PadProbeReturn.OK
 
     for m in pose_models:
-        model_elements[m["name"]].get_static_pad("sink").add_probe(Gst.PadProbeType.BUFFER, enlarge)
-        model_elements[m["name"]].get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, restore)
+        model_elements[m["name"]].get_static_pad("sink").add_probe(Gst.PadProbeType.BUFFER, safe(enlarge))
+        model_elements[m["name"]].get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, safe(restore))
 
     def pose_of(fm, om):
         if not pose_models or om.unique_component_id != 1 or om.class_id != 0:
             return None
-        with crops_lock:
-            saved = crops.pop((fm.pad_index, fm.frame_num, om.object_id), None)
+        saved = crop_store.pop((fm.pad_index, fm.frame_num, om.object_id))
         t = tensors(om, pose_models[0]["gie_id"]) if saved else None
         return decode(t, saved[1], W, H) if t else None
     frames = [0] * len(cams)
@@ -180,7 +194,7 @@ def main(path="config/node.yaml"):
         import tracemalloc
         tracemalloc.start(3)
         mem_trace = {"base": None, "t": time.time()}
-    want_snap, snap_lock = {}, threading.Lock()  # camera_id -> [(event_id, track_id)]
+    snap_requests = SnapshotRequests(settings.engine.get("snapshot_max_age_s", 5.0))  # photos wanted, per camera
 
     def probe(pad, info):
         # Runs on the video thread: copy what is needed, hand it off, return at once.
@@ -192,8 +206,7 @@ def main(path="config/node.yaml"):
             i, cam_id = fm.pad_index, cams[fm.pad_index].id
             frames[i] += 1
             watchdog.seen(i)
-            with snap_lock:
-                want = want_snap.pop(cam_id, None)
+            want = snap_requests.take(cam_id)
             if routes[i] or want:
                 objs, l_obj = [], fm.obj_meta_list
                 while l_obj is not None:
@@ -207,21 +220,21 @@ def main(path="config/node.yaml"):
                         break
                 ts = fm.ntp_timestamp / 1e9 if fm.ntp_timestamp else time.time()
                 frame = Frame(cam_id, fm.frame_num, ts, objs)
+                plan = router.plan(i, ts)  # [(use case, pixel spec if its pixels are due now)]
                 surface = None
-                if want or pixel_zones[i]:
+                if want or any(spec for _, spec in plan):  # map the frame's pixels only when someone needs them now
                     surface = pyds.get_nvds_buf_surface(hash(buf), fm.batch_id)
-                for uc in routes[i]:
+                for uc, spec in plan:
                     item = frame
-                    if uc in pixel_zones[i]:  # this plugin needs pixels: only its zone, at its rate
-                        zone, mode, every, max_w = pixel_zones[i][uc]
-                        if ts - last_pixels.get((i, uc), -1e9) >= every:
-                            last_pixels[(i, uc)] = ts
-                            px = crop_color(surface, zone, max_w) if mode == "color" else crop_zone(surface, zone)
-                            item = replace(frame, pixels=px)
+                    if spec is not None:  # this plugin's pixels are due: only its zone
+                        zone, mode, _, max_w = spec
+                        px = crop_color(surface, zone, max_w) if mode == "color" else crop_zone(surface, zone)
+                        item = replace(frame, pixels=px)
                     try:
                         workers[uc].frames_q.put_nowait(item)
                     except queue.Full:
                         stats["dropped"] += 1
+                        router.drop(uc)
                 if want:  # copy this camera's pixels once, for the events waiting on a snapshot
                     rgba = np.array(surface, copy=True, order="C")
                     snaps.submit([e for e, _ in want], rgba, objs, [ev for _, ev in want])
@@ -233,9 +246,10 @@ def main(path="config/node.yaml"):
                 break
         return Gst.PadProbeReturn.OK
 
-    probe_pad.add_probe(Gst.PadProbeType.BUFFER, probe)
+    probe_pad.add_probe(Gst.PadProbeType.BUFFER, safe(probe))
 
     def drain():
+        snap_requests.prune()  # requests of cameras that send no frames expire here
         for ev in watchdog.check():
             stats["events"]["health:" + ev["class"]] += 1
             stats["last_event"] = ev
@@ -255,8 +269,7 @@ def main(path="config/node.yaml"):
                 stats["last_event"] = ev
                 event_id = outbox.add(ev)
                 if not is_error and not ev["class"].endswith("_error") and ev.get("severity") in ("warning", "critical"):
-                    with snap_lock:
-                        want_snap.setdefault(ev["camera_id"], []).append((event_id, ev))
+                    snap_requests.add(ev["camera_id"], event_id, ev)
         return True
 
     last = {"t": time.time(), "f": frames.copy()}
