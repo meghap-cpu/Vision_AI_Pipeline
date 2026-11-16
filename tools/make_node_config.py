@@ -36,10 +36,13 @@ if a.vlm_backup:
 
 models = []
 for m in d.get("models") or []:  # extra models (PPE, pose) list the cameras they run on
+    if "cameras" not in m:  # a model without a list runs on every camera (e.g. spill): keep it as is
+        models.append(m)
+        continue
     cs = [new_id[c] for c in m.get("cameras", []) if c in new_id]
     if cs:
         models.append(dict(m, cameras=cs))  # a model with none of our cameras is left out: no wasted GPU
-dropped_models = [m.get("name") for m in d.get("models") or [] if not any(c in new_id for c in m.get("cameras", []))]
+dropped_models = [m.get("name") for m in d.get("models") or [] if "cameras" in m and not any(c in new_id for c in m["cameras"])]
 d["models"] = models
 
 for dt in (d.get("detection_types") or {}).values():

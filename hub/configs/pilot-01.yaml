@@ -140,6 +140,10 @@ models:
   cameras:
   - cam09
   - cam10
+- name: spill
+  config: config/pgie_spill.txt
+  gie_id: 5
+  interval: 4   # every 5th frame (~1 check/s per camera at 5 fps); no cameras list = all cameras
 vlm:
   url: http://127.0.0.1:8001/v1
   backup_url: http://127.0.0.1:8002/v1
@@ -147,7 +151,7 @@ vlm:
   model: cpatonn/Qwen3-VL-4B-Instruct-AWQ-4bit
   timeout_s: 30
 hub:
-  url: http://192.168.0.154:8100
+  url: http://127.0.0.1:8100
 retention:
   max_memory_gb: 8
   snapshot_keep_hours: 24
@@ -184,6 +188,10 @@ detection_types:
     model: Line Crossing
     version: v1.0
     use_case: line_crossing
+  spill:
+    model: Spill
+    version: v1 (yolo26n)
+    confidence: 0.45
 rules:
 - name: Helmet Compliance
   detection: ppe
@@ -258,3 +266,12 @@ rules:
   detection: line
   status: Draft
   instances: []
+- name: Spill Detection
+  detection: spill
+  severity: Medium
+  status: Active
+  instances:
+  - camera: cam05
+    instance: Spill area 1
+  - camera: cam06
+    instance: Spill area 2

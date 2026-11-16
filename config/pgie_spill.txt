@@ -1,0 +1,27 @@
+# Spill model: YOLO26n detection (0 Person, 1 Spill), same output as the person model, so the same parser.
+# Whole frame on every camera, letterboxed like YOLO training; how often is set by "interval" in the settings.
+[property]
+gpu-id=0
+onnx-file=../models/spill_yolo26n.onnx
+model-engine-file=../models/spill_yolo26n_b16_fp16.engine
+labelfile-path=labels_spill.txt
+custom-lib-path=../parsers/libnvdsparse_yolo26.so
+parse-bbox-func-name=NvDsInferParseYolo26
+output-blob-names=output0
+infer-dims=3;640;640
+batch-size=1
+network-mode=2
+network-type=0
+process-mode=1
+gie-unique-id=5
+num-detected-classes=2
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+maintain-aspect-ratio=1
+symmetric-padding=1
+scaling-filter=1
+cluster-mode=4
+
+[class-attrs-all]
+pre-cluster-threshold=0.3
+topk=300

@@ -20,8 +20,8 @@ import yaml
 
 LOCAL = re.compile(r"//(127\.0\.0\.1|localhost)(?=[:/])")
 # When a spare has no room for every camera, the most serious use cases are covered first
-PRIORITY = {"fire_smoke": 0, "man_down": 1, "worker_at_height": 2, "ppe": 3, "crowd": 4, "housekeeping": 5,
-            "motion": 6, "line": 6}
+PRIORITY = {"fire_smoke": 0, "man_down": 1, "worker_at_height": 2, "ppe": 3, "spill": 4, "crowd": 5,
+            "housekeeping": 6, "motion": 7, "line": 7}
 NO_RULE = 9
 
 
@@ -66,6 +66,10 @@ def merge(spare, partner, address, room):
 
     models = [dict(m, cameras=list(m.get("cameras", []))) for m in spare.get("models") or []]
     for m in partner.get("models") or []:
+        if "cameras" not in m:  # runs on every camera (e.g. spill): the spare needs it too
+            if not any(x.get("name") == m.get("name") for x in models):
+                models.append(dict(m))
+            continue
         cs = [c for c in m.get("cameras", []) if c in taken]
         if not cs:
             continue
