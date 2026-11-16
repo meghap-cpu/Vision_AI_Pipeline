@@ -99,7 +99,8 @@ def main(path="config/node.yaml"):
             if url:
                 VLMWatch(url, outbox).start()  # one vlm_down alert per server, not one per camera
     health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, lambda: {
-        "settings_source": source, "cameras_fps": status.get("fps"), "dropped_frames": stats["dropped"],
+        "settings_source": source, "settings_version": config_hash[:12],  # the UI can confirm a change applied
+        "cameras_fps": status.get("fps"), "dropped_frames": stats["dropped"],
         "cameras_offline": [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
         "workers_alive": status.get("workers"), "unsent_alerts": outbox.unsent(),
         "snapshot_errors": snaps.errors, "node_rss_mb": status.get("rss_mb"), "snapshot_queue": snaps.q.qsize()},

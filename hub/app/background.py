@@ -18,6 +18,8 @@ from .alert_format import to_safety_alert
 
 BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "")
 TOPIC = os.environ.get("KAFKA_TOPIC", "safety.alerts")
+HEALTH_TOPIC = os.environ.get("KAFKA_HEALTH_TOPIC", "vision.health")
+HEALTH_EVERY_S = int(os.environ.get("HEALTH_EVERY_S", "60"))
 PUBLIC_URL = os.environ.get("HUB_PUBLIC_URL", "http://localhost:8100").rstrip("/")
 SITE_TZ = ZoneInfo(os.environ.get("SITE_TZ", "UTC"))
 DOWN_AFTER_S = int(os.environ.get("NODE_DOWN_AFTER_S", "120"))
@@ -212,10 +214,38 @@ def _retention(pool):
         time.sleep(600)
 
 
+def health_message(r):
+    """vision.health message for one jetson, from its latest stored report (see the Kafka contract)."""
+    rep = dict(r.get("report") or {})
+    msg = {"node": r["node_id"], "site": r.get("site_id") or rep.get("site_id"), "time": rep.get("time"),
+           "status": "down" if r.get("down_since") else "up"}
+    msg.update({k: v for k, v in rep.items() if k not in ("node_id", "site_id", "time")})
+    return msg
+
+
+def _health_publisher(pool):
+    """4th job: every HEALTH_EVERY_S, each jetson's latest health report to HEALTH_TOPIC (latest only: if Kafka is
+    down, the next round simply sends newer reports, nothing piles up)."""
+    from confluent_kafka import Producer
+    producer = Producer({"bootstrap.servers": BOOTSTRAP, "acks": "1"})
+    print(f"kafka: jetson health to {HEALTH_TOPIC} every {HEALTH_EVERY_S} s", flush=True)
+    while True:
+        try:
+            with pool.connection() as c:
+                rows = c.execute("SELECT node_id, site_id, down_since, report FROM nodes").fetchall()
+            for r in rows:
+                producer.produce(HEALTH_TOPIC, key=r["node_id"], value=json.dumps(health_message(r), default=str))
+            producer.flush(10)
+        except Exception as e:
+            print(f"health publisher: {type(e).__name__}: {str(e)[:150]}", flush=True)
+        time.sleep(HEALTH_EVERY_S)
+
+
 def start(pool):
     threading.Thread(target=_monitor, args=(pool,), daemon=True).start()
     threading.Thread(target=_retention, args=(pool,), daemon=True).start()
     if BOOTSTRAP:
         threading.Thread(target=_publisher, args=(pool,), daemon=True).start()
+        threading.Thread(target=_health_publisher, args=(pool,), daemon=True).start()
     else:
         print("kafka: KAFKA_BOOTSTRAP not set, alerts are not published", flush=True)
