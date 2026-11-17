@@ -13,9 +13,11 @@ from datetime import datetime
 
 
 class HealthReporter:
-    def __init__(self, hub_url, node_id, site_id, status_fn, interval_s=30, data_dir="data"):
+    def __init__(self, hub_url, node_id, site_id, status, interval_s=30, data_dir="data"):
         self.url = hub_url.rstrip("/") + f"/api/v1/nodes/{node_id}/health"
-        self.node_id, self.site_id, self.status_fn = node_id, site_id, status_fn
+        # status: {name: function} (each value read on its own) or one function returning a dict
+        self.status = status if isinstance(status, dict) else {"status": status}
+        self.node_id, self.site_id = node_id, site_id
         self.interval, self.data_dir, self.started = interval_s, data_dir, time.time()
         # Known GPU load files (JetPack 6, then older layouts). Never search /sys recursively: it has link loops.
         self.gpu_load, self.temps = None, {}
@@ -38,15 +40,34 @@ class HealthReporter:
         threading.Thread(target=self._loop, daemon=True).start()
 
     def report(self):
+        """Always returns a report: each value is read on its own, and a value that fails is only named in
+        health_errors. A missing report means "jetson down" at the hub, so a stats hiccup must never cause one."""
         h = {"node_id": self.node_id, "site_id": self.site_id,
              "time": datetime.now().astimezone().isoformat(timespec="seconds"),
              "uptime_s": int(time.time() - self.started)}
-        h.update(self.status_fn())
-        if self.gpu_load:
+        errors = []
+        for name, fn in self.status.items():
             try:
-                h["gpu_load_pct"] = round(int(open(self.gpu_load).read()) / 10, 1)
+                value = fn()
+                h.update(value) if name == "status" and isinstance(value, dict) else h.__setitem__(name, value)
             except Exception:
-                pass
+                errors.append(name)
+        for name, fn in (("gpu_load_pct", self._gpu), ("temperatures_c", self._temps), ("memory_used_pct", self._memory),
+                         ("disk_free_gb", self._disk)):
+            try:
+                value = fn()
+                if value is not None:
+                    h[name] = value
+            except Exception:
+                errors.append(name)
+        if errors:
+            h["health_errors"] = errors
+        return h
+
+    def _gpu(self):
+        return round(int(open(self.gpu_load).read()) / 10, 1) if self.gpu_load else None
+
+    def _temps(self):
         temps = {}
         for name, path in self.temps.items():
             try:
@@ -55,15 +76,18 @@ class HealthReporter:
                 continue
             if -40 < t < 150:
                 temps[name] = round(t, 1)
-        if temps:
-            h["temperatures_c"] = temps
+        return temps or None
+
+    @staticmethod
+    def _memory():
         mem = {}
         for line in open("/proc/meminfo"):
             k, v = line.split(":", 1)
             mem[k] = int(v.split()[0])
-        h["memory_used_pct"] = round(100 * (1 - mem["MemAvailable"] / mem["MemTotal"]), 1)
-        h["disk_free_gb"] = round(shutil.disk_usage(self.data_dir if os.path.isdir(self.data_dir) else "/").free / 1e9, 1)
-        return h
+        return round(100 * (1 - mem["MemAvailable"] / mem["MemTotal"]), 1)
+
+    def _disk(self):
+        return round(shutil.disk_usage(self.data_dir if os.path.isdir(self.data_dir) else "/").free / 1e9, 1)
 
     def _loop(self):
         while True:

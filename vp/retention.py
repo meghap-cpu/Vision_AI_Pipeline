@@ -17,12 +17,12 @@ class Retention:
         self.outbox, self.dir, self.every = outbox, snapshot_dir, every_s
         self.keep_s = g("snapshot_keep_hours", 24) * 3600
         self.max_bytes = g("snapshot_max_gb", 2.0) * 1e9
-        self.outbox_keep_s = g("outbox_keep_days", 7) * 86400
+        self.outbox_keep_s = g("outbox_keep_days", 2) * 86400
         self.warn_free = g("disk_warn_free_gb", 2.0) * 1e9
         self.open, self.stats = {}, {"snapshots_deleted": 0, "events_pruned": 0}  # open: problem -> since when
         if every_s:
             print(f"retention: snapshots {g('snapshot_keep_hours', 24)} h / {g('snapshot_max_gb', 2.0)} GB, "
-                  f"sent events {g('outbox_keep_days', 7)} days; undelivered data is never deleted", flush=True)
+                  f"sent events {g('outbox_keep_days', 2)} days; undelivered data is never deleted", flush=True)
             threading.Thread(target=self._loop, daemon=True).start()
 
     def _loop(self):

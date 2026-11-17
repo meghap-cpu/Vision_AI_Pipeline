@@ -2,6 +2,7 @@
 Each event's photo is tracked on its own (photo_sent: NULL none, 0 waiting, 1 uploaded, 2 refused or missing), so an
 event is sent as soon as it is ready and a photo the hub refuses can never hold other alerts back."""
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -101,6 +102,10 @@ class Outbox:
     def oldest_unsent_s(self):
         row = self._db().execute("SELECT min(created) FROM events WHERE sent = 0").fetchone()
         return round(time.time() - row[0]) if row and row[0] else 0
+
+    def size_mb(self):
+        """The outbox's files on disk (SQLite never shrinks them by itself)."""
+        return round(sum(os.path.getsize(p) for p in (self.path, self.path + "-wal") if os.path.exists(p)) / 1e6, 1)
 
     def photos_waiting(self):
         return self._db().execute("SELECT count(*) FROM events WHERE photo_sent = 0").fetchone()[0]

@@ -156,7 +156,7 @@ retention:
   max_memory_gb: 8
   snapshot_keep_hours: 24
   snapshot_max_gb: 2
-  outbox_keep_days: 7
+  outbox_keep_days: 2   # the hub keeps the record; the jetson only needs a buffer
   disk_warn_free_gb: 2
 model_versions:
   ppe: ppe-merged rfdetr v1

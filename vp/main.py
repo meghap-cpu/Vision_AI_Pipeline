@@ -94,25 +94,29 @@ def main(path="config/node.yaml"):
     os.makedirs(settings.data_dir, exist_ok=True)
     outbox = Outbox(os.path.join(settings.data_dir, "outbox.db"), settings.node_id, settings.site_id)
     snaps = Snapshots(outbox, os.path.join(settings.data_dir, "snapshots"))
-    watchdog = CameraWatchdog([c.id for c in cams], outbox, settings.camera_offline_after_s)
+    watchdog = CameraWatchdog([c.id for c in cams], outbox, settings.camera_offline_after_s,
+                              settings.engine.get("camera_startup_grace_s", 60.0))
     uploader = Uploader(outbox, settings.hub["url"]) if settings.hub.get("url") else None
     retention = Retention(outbox, os.path.join(settings.data_dir, "snapshots"), settings.retention)
     if settings.vlm.get("url") and any(getattr(REGISTRY[uc], "uses_vlm", False) for c in cams for uc in c.use_cases):
         for url in (settings.vlm["url"], settings.vlm.get("backup_url")):  # one watch per VLM server
             if url:
                 VLMWatch(url, outbox).start()  # one vlm_down alert per server, not one per camera
-    health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, lambda: {
-        "settings_source": source, "settings_version": config_hash[:12],  # the UI can confirm a change applied
-        "cameras_fps": status.get("fps"), "dropped_frames": stats["dropped"],
-        "dropped_by_use_case": router.dropped_by_use_case(), "probe_errors": sum(n for k, n in errors.counts.items() if k.startswith("probe")),
-        "loop_errors": {k: n for k, n in errors.counts.items() if not k.startswith("probe")},
-        "worker_restarts": dict(supervisor.restarts),
-        "snapshots_expired": snap_requests.expired, "pose_crops_held": len(crop_store),
-        "oldest_unsent_s": outbox.oldest_unsent_s(), "photos_waiting": outbox.photos_waiting(),
-        "photos_refused": uploader.photos_refused if uploader else 0, "snapshot_drops": snaps.dropped,
-        "cameras_offline": [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
-        "workers_alive": status.get("workers"), "unsent_alerts": outbox.unsent(),
-        "snapshot_errors": snaps.errors, "node_rss_mb": status.get("rss_mb"), "snapshot_queue": snaps.q.qsize()},
+    status_fns = {  # each health value is read on its own: one failing never stops the report (see health.py)
+        "settings_source": lambda: source, "settings_version": lambda: config_hash[:12],  # UI can confirm a change
+        "cameras_fps": lambda: status.get("fps"), "dropped_frames": lambda: stats["dropped"],
+        "dropped_by_use_case": lambda: router.dropped_by_use_case(),
+        "probe_errors": lambda: sum(n for k, n in errors.counts.items() if k.startswith("probe")),
+        "loop_errors": lambda: {k: n for k, n in errors.counts.items() if not k.startswith("probe")},
+        "worker_restarts": lambda: dict(supervisor.restarts),
+        "snapshots_expired": lambda: snap_requests.expired, "pose_crops_held": lambda: len(crop_store),
+        "oldest_unsent_s": outbox.oldest_unsent_s, "photos_waiting": outbox.photos_waiting,
+        "photos_refused": lambda: uploader.photos_refused if uploader else 0, "snapshot_drops": lambda: snaps.dropped,
+        "cameras_offline": lambda: [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
+        "workers_alive": lambda: status.get("workers"), "unsent_alerts": outbox.unsent, "outbox_mb": outbox.size_mb,
+        "snapshot_errors": lambda: snaps.errors, "node_rss_mb": lambda: status.get("rss_mb"),
+        "snapshot_queue": lambda: snaps.q.qsize()}
+    health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, status_fns,
         settings.hub.get("health_every_s", 30), settings.data_dir) if settings.hub.get("url") else None)
     workers = start_workers(settings, mp.get_context("spawn"))
     supervisor = RestartPolicy()  # crashed workers restart at once, then after 5, 10, 20, 40, 60 s
