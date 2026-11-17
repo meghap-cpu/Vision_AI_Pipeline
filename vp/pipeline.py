@@ -1,47 +1,7 @@
-"""Builds the DeepStream trunk from a node's settings."""
-import os
+"""Builds the DeepStream trunk from a node's settings (the parts that need no DeepStream are in
+pipeline_config.py)."""
+from vp.pipeline_config import _preprocess_config
 
-PREPROCESS_LIB = "/opt/nvidia/deepstream/deepstream/lib/gst-plugins/libcustom2d_preprocess.so"
-
-
-def _preprocess_config(m, src_ids, settings):
-    """nvdspreprocess settings that prepare model m's input only for the given camera indexes."""
-    c, h, w = m["input"]
-    path = os.path.join(os.path.abspath(settings.data_dir), f"preprocess-{m['name']}.txt")
-    with open(path, "w") as f:
-        f.write(f"""[property]
-enable=1
-target-unique-ids={m['gie_id']}
-network-input-order=0
-process-on-frame=1
-unique-id={100 + m['gie_id']}
-gpu-id=0
-maintain-aspect-ratio=0
-symmetric-padding=0
-processing-width={w}
-processing-height={h}
-scaling-buf-pool-size=6
-tensor-buf-pool-size=6
-network-input-shape={len(src_ids)};{c};{h};{w}
-network-color-format=0
-tensor-data-type=0
-tensor-name={m['tensor']}
-scaling-pool-memory-type=0
-scaling-pool-compute-hw=0
-scaling-filter=1
-custom-lib-path={PREPROCESS_LIB}
-custom-tensor-preparation-function=CustomTensorPreparation
-
-[user-configs]
-pixel-normalization-factor=0.003921568
-offsets=0;0;0
-
-[group-0]
-src-ids={';'.join(str(i) for i in src_ids)}
-custom-input-transformation-function=CustomAsyncTransformation
-process-on-roi=0
-""")
-    return path
 import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
@@ -62,9 +22,11 @@ def _link_video(src, pad, mux_pad):
         pad.link(mux_pad)
 
 
-def build(settings):
+def build(settings, on_overrun=None):
     """One nvurisrcbin per camera -> nvstreammux -> person detector -> tracker
     -> RGBA conversion (so snapshots can read pixels) -> sink.
+    Queues between stages hold at most 4 batches and drop the oldest when full, so video stays current under
+    overload (a full queue would otherwise hold up every stage before it); on_overrun(queue name) counts each drop.
     Returns the pipeline and the pad where the probe attaches."""
     e, cams = settings.engine, settings.cameras
     pipe = Gst.Pipeline.new("vision-pipeline")
@@ -84,25 +46,16 @@ def build(settings):
             infer.set_property("input-tensor-meta", True)
         extra.append(infer)
         model_elements[m["name"]] = infer
-    extra, model_elements = [], {}
-    index = {c.id: i for i, c in enumerate(cams)}
-    for m in settings.models:
-        infer = _make("nvinfer", f"model-{m['name']}", config_file_path=m["config"], batch_size=len(cams),
-                      interval=int(m.get("interval", 0)))
-        if m.get("cameras") and m.get("crop") != "pose":
-            # whole-frame model on some cameras only: nvdspreprocess prepares input for those cameras alone
-            src_ids = [index[c] for c in m["cameras"]]
-            extra.append(_make("nvdspreprocess", f"pre-{m['name']}", config_file=_preprocess_config(m, src_ids, settings)))
-            infer.set_property("input-tensor-meta", True)
-        extra.append(infer)
-        model_elements[m["name"]] = infer
     conv = _make("nvvideoconvert", "conv")
     rgba = _make("capsfilter", "rgba", caps=Gst.Caps.from_string("video/x-raw(memory:NVMM), format=RGBA"))
     sink = _make("fakesink", "sink", sync=False)
     # a queue after each heavy stage lets the next batch start while a model is still busy
     chain = []
     for n, el in enumerate([mux, pgie, tracker, *extra]):
-        chain += [el, _make("queue", f"queue-{n}")]
+        q = _make("queue", f"queue-{n}", max_size_buffers=4, max_size_bytes=0, max_size_time=0, leaky=2)
+        if on_overrun:
+            q.connect("overrun", lambda queue: on_overrun(queue.get_name()))
+        chain += [el, q]
     chain = tuple(chain + [conv, rgba, sink])
     for el in chain:
         pipe.add(el)

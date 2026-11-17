@@ -26,6 +26,7 @@ from vp.pixels import crop_color, crop_zone
 from vp.pose import decode, pose_box, tensors
 from vp.plugins import REGISTRY
 from vp.remote_config import GOOD_AFTER_S, RESTART_CODE, load_node, mark_good, watch
+from vp.pipeline_config import missing_engines
 from vp.router import CropStore, Router, SnapshotRequests
 from vp.supervisor import ErrorCounter, RestartPolicy
 from vp.settings import load
@@ -115,7 +116,7 @@ def main(path="config/node.yaml"):
         "cameras_offline": lambda: [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
         "workers_alive": lambda: status.get("workers"), "unsent_alerts": outbox.unsent, "outbox_mb": outbox.size_mb,
         "snapshot_errors": lambda: snaps.errors, "node_rss_mb": lambda: status.get("rss_mb"),
-        "snapshot_queue": lambda: snaps.q.qsize()}
+        "snapshot_queue": lambda: snaps.q.qsize(), "pipeline_overruns": lambda: dict(overruns)}
     health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, status_fns,
         settings.hub.get("health_every_s", 30), settings.data_dir) if settings.hub.get("url") else None)
     workers = start_workers(settings, mp.get_context("spawn"))
@@ -127,7 +128,12 @@ def main(path="config/node.yaml"):
     router = Router(routes, pixel_zones)  # which use cases get each frame, and when they get pixels
 
     Gst.init(None)
-    pipe, probe_pad, model_elements = build(settings)
+    for name, engine in missing_engines(settings):  # DeepStream would quietly rebuild it (~25 min, every start)
+        print(f"engine missing for {name}: {engine} - build it on this jetson (tools/install_node.sh, step 6)", flush=True)
+        outbox.add({"camera_id": "node", "use_case": "pipeline", "class": "engine_missing", "severity": "warning",
+                    "ts": time.time(), "incident": f"engine:{name}", "extra": {"model": name, "engine": engine}})
+    overruns = Counter()  # queue name -> batches dropped because the next stage was too slow
+    pipe, probe_pad, model_elements = build(settings, on_overrun=lambda q: overruns.update([q]))
     pose_models = [m for m in settings.models if m.get("crop") == "pose"]
     pose_cams = ({i for i, c in enumerate(cams) if c.id in pose_models[0]["cameras"]}
                  if pose_models and pose_models[0].get("cameras") else None)
