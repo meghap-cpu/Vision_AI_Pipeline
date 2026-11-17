@@ -1,6 +1,6 @@
-"""Measures a VLM server the way our plugins use it. Usage: python3 tools/vlm_bench.py URL MODEL
+"""Measures a VLM server the way our plugins use it. Usage: python3 tools/vlm_bench.py URL MODEL [N,N,...]
 A: fire-and-smoke check (4 frames) x5 in a row; B: worker-at-height PPE check on worker photos;
-C: 4 fire checks at the same time (capacity)."""
+C: N fire checks at the same time, for each N given (capacity; default 4), e.g. 8,16,32."""
 import glob, os, statistics, sys, time
 import cv2
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,10 +38,11 @@ for path in paths[:2]:
     r = one.ask([img], PPE_PROMPT, max_tokens=120).result()
     print(f"   {os.path.basename(path)[:40]:40s} {r['seconds']:5.2f} s  answer {r['answer']}")
 
-print("C. 4 fire checks at the same time:")
-many = VLMClient(url, model, timeout_s=120, max_in_flight=4)
-t0 = time.time()
-results = [f.result() for f in [many.ask(frames, FIRE_PROMPT) for _ in range(4)]]
-total = time.time() - t0
-print(f"   all 4 done in {total:.2f} s -> {4 / total:.2f} fire checks per second "
-      f"(single-request median {statistics.median(times):.2f} s)")
+for n in [int(x) for x in (sys.argv[3] if len(sys.argv) > 3 else "4").split(",")]:
+    print(f"C. {n} fire checks at the same time:")
+    many = VLMClient(url, model, timeout_s=120, max_in_flight=n)
+    t0 = time.time()
+    results = [f.result() for f in [many.ask(frames, FIRE_PROMPT) for _ in range(n)]]
+    total = time.time() - t0
+    print(f"   all {n} done in {total:.2f} s -> {n / total:.2f} fire checks per second "
+          f"(single-request median {statistics.median(times):.2f} s)")

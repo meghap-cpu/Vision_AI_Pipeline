@@ -9,11 +9,13 @@ import signal
 import time
 import traceback
 
+from vp import vlm
 from vp.plugins import REGISTRY
 from vp.schedule import Schedule
 
 REPORT_EVERY_S = 60.0  # at most one plugin_error per camera per minute
 RESET_AFTER = 10  # errors in a row before the camera's plugin starts fresh
+STATS_EVERY_S = 60.0  # VLM counts to the main loop, for the health report
 
 
 def _event(use_case, camera, ts, cls, severity="info", **extra):
@@ -79,6 +81,7 @@ def run(use_case, cameras, frames_q, events_q):
             meta = {k: params[k] for k in ("rule", "instance") if params.get(k)}
             events_q.put({**_event(use_case, cam, time.time(), "plugin_error", "warning", reason="settings",
                                    trace=traceback.format_exc(limit=3)), **meta})
+    last_stats = time.time()
     while True:
         frame = frames_q.get()
         if frame is None:
@@ -88,3 +91,8 @@ def run(use_case, cameras, frames_q, events_q):
             continue  # this camera's settings failed (reported at start)
         for ev in c.step(use_case, frame):
             events_q.put(ev)
+        if time.time() - last_stats >= STATS_EVERY_S:
+            last_stats = time.time()
+            s = vlm.shared_stats().get(use_case)
+            if s:  # for the health report only: the main loop keeps it, it never goes to the outbox
+                events_q.put({"stats": "vlm", "use_case": use_case, "values": s})

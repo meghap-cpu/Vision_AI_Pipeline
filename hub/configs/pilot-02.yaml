@@ -88,7 +88,7 @@ vlm:
   backup_url: http://192.168.0.139:8002/v1
   _real_url: http://192.168.0.119:8010/v1
   model: cpatonn/Qwen3-VL-4B-Instruct-AWQ-4bit
-  timeout_s: 30
+  timeout_s: 8    # a stuck VLM hands over to the backup in time (worker at height: 10 s)
 hub:
   url: http://192.168.0.154:8100
 retention:

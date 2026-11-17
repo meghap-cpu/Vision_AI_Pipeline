@@ -104,7 +104,7 @@ vlm:
   url: http://127.0.0.1:8001/v1   # SOAK: stand-in VLM at the real one's speed
   _real_url: http://192.168.0.119:8010/v1   # dedicated VLM Jetson (vLLM, Qwen3-VL-4B)
   model: cpatonn/Qwen3-VL-4B-Instruct-AWQ-4bit
-  timeout_s: 30
+  timeout_s: 8    # a stuck VLM hands over to the backup in time (worker at height: 10 s)
 hub:
   url: http://127.0.0.1:8100   # stand-in hub for now; the real api-dashboard later
 retention:

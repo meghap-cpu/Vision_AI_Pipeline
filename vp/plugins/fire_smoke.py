@@ -3,7 +3,7 @@ the repo's question; 5 positive batches in a row raise the alert, 10 negative in
 Changed: the VLM call never blocks the video; unreadable replies are unknown, not crashes; one alert per episode
 (start + end); a VLM that cannot be reached raises a warning instead of looking like "no fire"."""
 from vp.plugin import Plugin, event
-from vp.vlm import VLMClient
+from vp import vlm
 
 PROMPT = ('Analyze ALL these frames. Reply ONLY with this JSON, nothing else: '
           '{"fire": true or false, "smoke": true or false}')
@@ -21,9 +21,9 @@ class FireSmokePlugin(Plugin):
         self.batch_size = g("batch_size", 4)
         self.on_after, self.off_after = g("positive_batches", 5), g("negative_batches", 10)
         self.error_every_s = g("error_every_s", 60.0)
-        v = g("vlm", {})
-        self.client = VLMClient(v.get("url", "http://127.0.0.1:8000/v1"), v.get("model", "qwen3-vl"),
-                                v.get("timeout_s", 30.0), max_in_flight=1, backup_url=v.get("backup_url"))
+        # one client for every fire camera in this worker: max_in_flight questions at once in total (4 measured
+        # 6.2 checks/s on one VLM jetson); a busy client says so and the camera asks again on its next frame
+        self.client = vlm.shared(self.name, g("vlm", {}), g("max_in_flight", 4))
         self.batch, self.pending = [], None
         self.pos = self.neg = 0
         self.active, self.started, self.last_error = False, None, -1e9
@@ -36,7 +36,9 @@ class FireSmokePlugin(Plugin):
             events += self._result(frame)
             self.pending = None
         if self.pending is None and len(self.batch) >= self.batch_size:
-            self.pending, self.batch = self.client.ask(self.batch, PROMPT), []
+            self.pending = self.client.ask(self.batch, PROMPT)  # None when busy: keep the newest frames, ask later
+            if self.pending is not None:
+                self.batch = []
         return events
 
     def _result(self, frame):

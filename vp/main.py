@@ -116,7 +116,9 @@ def main(path="config/node.yaml"):
         "cameras_offline": lambda: [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
         "workers_alive": lambda: status.get("workers"), "unsent_alerts": outbox.unsent, "outbox_mb": outbox.size_mb,
         "snapshot_errors": lambda: snaps.errors, "node_rss_mb": lambda: status.get("rss_mb"),
-        "snapshot_queue": lambda: snaps.q.qsize(), "pipeline_overruns": lambda: dict(overruns)}
+        "snapshot_queue": lambda: snaps.q.qsize(), "pipeline_overruns": lambda: dict(overruns),
+        "vlm": lambda: dict(vlm_stats)}  # per use case: asked, answered, by_backup, failed, busy, avg_s (since start)
+    vlm_stats = {}
     health = (HealthReporter(settings.hub["url"], settings.node_id, settings.site_id, status_fns,
         settings.hub.get("health_every_s", 30), settings.data_dir) if settings.hub.get("url") else None)
     workers = start_workers(settings, mp.get_context("spawn"))
@@ -279,6 +281,9 @@ def main(path="config/node.yaml"):
                     ev = w.events_q.get_nowait()
                 except queue.Empty:
                     break
+                if "stats" in ev:  # a worker's VLM counts: kept for the health report, never an alert
+                    vlm_stats[ev["use_case"]] = ev["values"]
+                    continue
                 is_error = ev["class"] == "plugin_error"
                 stats["events"][ev["use_case"] + (":error" if is_error else "")] += 1
                 stats["last_event"] = ev

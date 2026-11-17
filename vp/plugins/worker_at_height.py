@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from vp.plugin import Plugin, event
-from vp.vlm import VLMClient
+from vp import vlm
 
 PPE_PROMPT = (
     "You are a safety inspector. Examine this image of a worker carefully.\n"
@@ -64,7 +64,7 @@ def seg_dist(p, a, b):
 
 class WorkerAtHeightPlugin(Plugin):
     name = "worker_at_height"
-    needs_pixels, pixel_mode, pixels_every_s, pixel_max_width = True, "color", 0.5, 1280  # full resolution, 1 per s
+    needs_pixels, pixel_mode, pixels_every_s, pixel_max_width = True, "color", 0.5, 1280  # full resolution, 2 per s
     uses_vlm = True
 
     def __init__(self, camera_id, params):
@@ -82,9 +82,9 @@ class WorkerAtHeightPlugin(Plugin):
         self.entered_after_s = g("entered_after_s", 5.0)  # time in the zone before the low alert
         self.image_max_age_s = g("image_max_age_s", 0.75)
         self.error_every_s = g("error_every_s", 60.0)
-        v = g("vlm", {})
-        self.client = VLMClient(v.get("url", "http://127.0.0.1:8000/v1"), v.get("model", "qwen3-vl"),
-                                v.get("timeout_s", 30.0), max_in_flight=g("max_in_flight", 2), backup_url=v.get("backup_url"))
+        # one client for every camera of this use case in the worker; when it is busy, ask() returns None and the
+        # person is asked about again on a later frame, with a fresh crop
+        self.client = vlm.shared(self.name, g("vlm", {}), g("max_in_flight", 2))
         self.image, self.image_ts, self.incidents, self.last_error = None, -1e9, {}, -1e9
 
     def _place(self, box):
