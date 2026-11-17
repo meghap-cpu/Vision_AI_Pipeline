@@ -21,9 +21,9 @@ class FireSmokePlugin(Plugin):
         self.batch_size = g("batch_size", 4)
         self.on_after, self.off_after = g("positive_batches", 5), g("negative_batches", 10)
         self.error_every_s = g("error_every_s", 60.0)
-        # one client for every fire camera in this worker: max_in_flight questions at once in total (4 measured
-        # 6.2 checks/s on one VLM jetson); a busy client says so and the camera asks again on its next frame
-        self.client = vlm.shared(self.name, g("vlm", {}), g("max_in_flight", 4))
+        # one client for every fire camera in this worker, with 1 slot per camera (a camera has one batch out at a
+        # time); a busy client says so and the camera asks again on its next frame
+        self.client = vlm.shared(self.name, g("vlm", {}), camera_id, g("max_in_flight", 1))
         self.batch, self.pending = [], None
         self.pos = self.neg = 0
         self.active, self.started, self.last_error = False, None, -1e9

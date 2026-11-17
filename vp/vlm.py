@@ -3,8 +3,9 @@ ask() returns a Future at once, or None when max_in_flight questions are already
 later, with a fresh image, instead of queueing a stale one). Replies are parsed robustly.
 With a backup_url: a failed or timed-out request is retried on the backup at once, and the client stays on the
 backup for retry_primary_s before trying the primary again. Each result says which server answered.
-shared(): one client per server and use case in a worker process, so every camera shares its slots and its failover
-memory (a stuck primary costs one timeout per use case, not one per camera). stats(): counts for the health report.
+shared(): one client per server and use case in a worker process, so every camera shares its failover memory (a stuck
+primary costs one timeout per use case, not one per camera); its slots are the sum of each camera's max_in_flight.
+stats(): counts for the health report.
 Note: timeout_s applies to each network read, not the whole reply; a server trickling bytes could take longer."""
 import base64, json, threading, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -35,12 +36,13 @@ def parse_json(text):
 
 
 class VLMClient:
-    def __init__(self, url, model, timeout_s=DEFAULT_TIMEOUT_S, max_in_flight=1, backup_url=None, retry_primary_s=60.0):
+    def __init__(self, url, model, timeout_s=DEFAULT_TIMEOUT_S, max_in_flight=1, backup_url=None, retry_primary_s=60.0,
+                 threads=None):
         self.urls = [u.rstrip("/") + "/chat/completions" for u in (url, backup_url) if u]
         self.url = self.urls[0]
         self.retry_primary_s, self._primary_failed_at = retry_primary_s, None
         self.model, self.timeout = model, timeout_s
-        self.pool = ThreadPoolExecutor(max_workers=max_in_flight)
+        self.pool = ThreadPoolExecutor(max_workers=threads or max_in_flight)  # threads start only when needed
         self.max_in_flight, self._busy, self._lock = max_in_flight, 0, threading.Lock()
         # running totals: questions asked, answered, by the backup, failed, refused because full; answer seconds
         self.counts = {"asked": 0, "answered": 0, "by_backup": 0, "failed": 0, "busy": 0}
@@ -115,19 +117,27 @@ class VLMClient:
         raise error
 
 
-_shared = {}  # (use case, url, backup, model, timeout, max_in_flight) -> client, for this process
+_shared = {}  # (use case, url, backup, model, timeout) -> [client, {camera: slots}], for this process
 _shared_lock = threading.Lock()
+MAX_THREADS = 64  # thread pool size of a shared client; the slot count (max_in_flight) is what limits questions
 
 
-def shared(use_case, vlm, max_in_flight):
+def shared(use_case, vlm, camera_id, per_camera):
     """The one client this process uses for use_case with these VLM settings (vlm: url, backup_url, model, timeout_s).
-    Cameras of one use case share it; a plugin that starts fresh gets the same client back, not a new thread pool."""
+    Cameras of one use case share it; each camera adds its per_camera slots once, so the use case keeps the capacity
+    it had with one client per camera. A plugin that starts fresh gets the same client back, not a new thread pool."""
     key = (use_case, vlm.get("url", "http://127.0.0.1:8000/v1"), vlm.get("backup_url"), vlm.get("model", "qwen3-vl"),
-           float(vlm.get("timeout_s", DEFAULT_TIMEOUT_S)), int(max_in_flight))
+           float(vlm.get("timeout_s", DEFAULT_TIMEOUT_S)))
     with _shared_lock:
         if key not in _shared:
-            _shared[key] = VLMClient(key[1], key[3], key[4], max_in_flight=key[5], backup_url=key[2])
-        return _shared[key]
+            _shared[key] = [VLMClient(key[1], key[3], key[4], max_in_flight=0, backup_url=key[2], threads=MAX_THREADS),
+                            {}]
+        client, cams = _shared[key]
+        if camera_id not in cams:
+            cams[camera_id] = int(per_camera)
+            with client._lock:
+                client.max_in_flight = min(MAX_THREADS, sum(cams.values()))
+        return client
 
 
 def shared_stats():
@@ -135,7 +145,7 @@ def shared_stats():
     out = {}
     with _shared_lock:
         clients = list(_shared.items())
-    for key, c in clients:
+    for key, (c, _) in clients:
         s, tot = c.stats(), out.setdefault(key[0], {})
         for k, v in s.items():
             if k == "avg_s":

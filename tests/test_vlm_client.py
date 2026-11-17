@@ -97,14 +97,16 @@ def test_shared_client_per_use_case():
     v = {"url": "http://127.0.0.1:9/v1", "timeout_s": 8}
     a, b = FireSmokePlugin("cam1", {"vlm": v}), FireSmokePlugin("cam2", {"vlm": v})
     assert a.client is b.client, "cameras of one use case share one client"
-    assert a.client.max_in_flight == 4 and a.client.timeout == 8.0
+    assert a.client.max_in_flight == 2 and a.client.timeout == 8.0, "1 slot per fire camera, as before"
     assert FireSmokePlugin("cam1", {"vlm": v}).client is a.client, "a plugin that starts fresh gets the same client"
-    w = WorkerAtHeightPlugin("cam3", {"vlm": v, "zones": []})
-    assert w.client is not a.client and w.client.max_in_flight == 2, "each use case has its own"
-    assert vlm.shared("x", {}, 1).timeout == vlm.DEFAULT_TIMEOUT_S == 8.0
+    assert a.client.max_in_flight == 2, "a fresh start does not add slots again"
+    w = [WorkerAtHeightPlugin(c, {"vlm": v, "zones": []}) for c in ("cam3", "cam4")]
+    assert w[0].client is w[1].client is not a.client, "each use case has its own"
+    assert w[0].client.max_in_flight == 4, "2 slots per at-height camera: the capacity of one client per camera"
+    assert vlm.shared("x", {}, "c", 1).timeout == vlm.DEFAULT_TIMEOUT_S == 8.0
     a.client.counts["asked"] += 3
     assert vlm.shared_stats()["fire_smoke"]["asked"] >= 3
-    print("ok  shared: one client per use case, reused after a fresh start; stats per use case")
+    print("ok  shared: one client per use case with each camera's slots, reused after a fresh start; stats per use case")
 
 
 class BusyThenFree:
@@ -142,7 +144,19 @@ def test_plugins_ask_again_when_busy():
         wah.on_frame(Frame("cam2", n, n / 5, [Obj(1, 0, 0.9, (0.4, 0.4, 0.5, 0.9))], pixels=img))
     assert len(wah.client.asked) == 3, f"asked again after each busy reply: {len(wah.client.asked)}"
     assert wah.incidents[1]["verdict"] is not None and not wah.incidents[1]["verdict"]["violation"]
-    print("ok  plugins: fire keeps its newest 4 frames and asks again; worker at height asks again with a fresh crop")
+
+    # one slot, two people waiting: the one near an edge (3 s limit) goes first although they arrived later
+    wah = WorkerAtHeightPlugin("cam3", {**params, "edges": [[[0.0, 0.95], [1.0, 0.95]]]})
+    wah.client = BusyThenFree(busy=0, answer={"harness": True, "helmet": True, "vest": True})
+    wah.client.ask = lambda images, prompt, max_tokens=60: (wah.client.asked.append(images[0].shape), None)[1]
+    wah.on_frame(Frame("cam3", 0, 0.0, [Obj(1, 0, 0.9, (0.1, 0.1, 0.2, 0.5))], pixels=img))  # far from the edge
+    wah.client.asked.clear()
+    wah.on_frame(Frame("cam3", 1, 1.0, [Obj(1, 0, 0.9, (0.1, 0.1, 0.2, 0.5)),
+                                        Obj(2, 0, 0.9, (0.6, 0.5, 0.9, 0.95))], pixels=img))  # near the edge
+    assert len(wah.client.asked) == 1, "stops asking once the client is busy"
+    assert wah.client.asked[0][1] > 30, f"near-edge person (wide crop) asked first: {wah.client.asked}"
+    print("ok  plugins: fire keeps its newest 4 frames and asks again; worker at height asks again with a fresh crop, "
+          "most urgent person first")
 
 
 def test_worker_sends_stats():

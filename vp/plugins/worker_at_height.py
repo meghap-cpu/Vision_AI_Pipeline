@@ -82,9 +82,9 @@ class WorkerAtHeightPlugin(Plugin):
         self.entered_after_s = g("entered_after_s", 5.0)  # time in the zone before the low alert
         self.image_max_age_s = g("image_max_age_s", 0.75)
         self.error_every_s = g("error_every_s", 60.0)
-        # one client for every camera of this use case in the worker; when it is busy, ask() returns None and the
-        # person is asked about again on a later frame, with a fresh crop
-        self.client = vlm.shared(self.name, g("vlm", {}), g("max_in_flight", 2))
+        # one client for every camera of this use case in the worker, 2 slots per camera; when it is busy, ask()
+        # returns None and the person is asked about again on a later frame, with a fresh crop
+        self.client = vlm.shared(self.name, g("vlm", {}), camera_id, g("max_in_flight", 2))
         self.image, self.image_ts, self.incidents, self.last_error = None, -1e9, {}, -1e9
 
     def _place(self, box):
@@ -107,6 +107,7 @@ class WorkerAtHeightPlugin(Plugin):
         events = []
         if frame.pixels is not None:
             self.image, self.image_ts = frame.pixels, frame.ts
+        due = []  # (deadline, incident) of people waiting for a check
         for o in frame.objects:
             if o.source != 1 or o.class_id != 0:
                 continue
@@ -118,12 +119,17 @@ class WorkerAtHeightPlugin(Plugin):
             inc.update(last_in=frame.ts, box=o.box)
             inc["near_edge"] = inc["near_edge"] or near
             v = inc["verdict"]
-            due = v is None or (not v["violation"] and frame.ts - inc["checked"] >= self.reverify_s)
-            if due and inc["pending"] is None and self.image is not None \
-                    and frame.ts - self.image_ts <= self.image_max_age_s:
-                crop = self._crop(o.box)
-                if crop is not None:
-                    inc["pending"] = self.client.ask([crop], PPE_PROMPT, max_tokens=160)
+            if inc["pending"] is None and (v is None or (not v["violation"]
+                                                         and frame.ts - inc["checked"] >= self.reverify_s)):
+                due.append((self._deadline(inc), inc))
+        if due and self.image is not None and frame.ts - self.image_ts <= self.image_max_age_s:
+            for _, inc in sorted(due, key=lambda d: d[0]):  # most urgent first: near an edge, then the longest wait
+                crop = self._crop(inc["box"])
+                if crop is None:
+                    continue
+                inc["pending"] = self.client.ask([crop], PPE_PROMPT, max_tokens=160)
+                if inc["pending"] is None:
+                    break  # no slot free: the rest wait for a later frame
         for tid, inc in list(self.incidents.items()):
             if inc["pending"] is not None and inc["pending"].done():
                 events += self._verdict(frame, inc)
@@ -136,6 +142,12 @@ class WorkerAtHeightPlugin(Plugin):
                                         box=tuple(round(x, 3) for x in inc["box"]),
                                         at_height_s=round(inc["last_in"] - inc["opened"], 1)))
         return events
+
+    def _deadline(self, inc):
+        """When this person escalates to at_height_unverified; re-checks of compliant workers come last."""
+        if inc["verdict"] is not None:
+            return float("inf")
+        return inc["opened"] + (self.edge_unverified_s if inc["near_edge"] else self.unverified_s)
 
     def _verdict(self, frame, inc):
         fut, inc["pending"] = inc["pending"], None

@@ -15,7 +15,8 @@ FEET = {1: (0.80, 0.5), 2: (0.70, 0.5), 3: (0.52, 0.5), 4: (0.90, 0.3), 5: (0.20
 
 
 class FakeVLM:
-    """Answers in the order the plugin asks: people 1, 2, 3, 4, 6, 7 on the first frame. 'slow' never answers."""
+    """Answers in the order the plugin asks: most urgent first, so 3 (near the edge: 3 s) and then 1, 2, 4, 6, 7
+    (10 s, in the order seen) on the first frame. 'slow' never answers."""
     def __init__(self, answers):
         self.answers = list(answers)
 
@@ -37,7 +38,7 @@ def run():
     params = {"zones": [[[0.5, 0.0], [1.0, 0.0], [1.0, 0.6], [0.5, 0.6]]],  # height zone: upper right
               "edges": [[[0.5, 0.0], [0.5, 0.6]]]}                         # its open edge
     plugin = WorkerAtHeightPlugin("test-cam", params)
-    plugin.client = FakeVLM([OK, NO_VEST, NOTHING, "slow", NO_HARNESS, OK])
+    plugin.client = FakeVLM([NOTHING, OK, NO_VEST, "slow", NO_HARNESS, OK])
     img, got = np.zeros((720, 1280, 3), np.uint8), []
     for n in range(85):  # 5 fps: everyone present for 12 s, then nobody for 5 s
         t = n / 5
