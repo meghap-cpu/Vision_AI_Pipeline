@@ -75,7 +75,8 @@ class Snapshots:
             cv2.putText(img, label, (10, 30 + 28 * n), FONT, 0.8, (0, 0, 0), 4)
             cv2.putText(img, label, (10, 30 + 28 * n), FONT, 0.8, YELLOW, 2)
         path = os.path.join(self.folder, f"{event_ids[0]}.jpg")
-        cv2.imwrite(path, img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not cv2.imwrite(path, img, [cv2.IMWRITE_JPEG_QUALITY, 85]):  # OpenCV returns False, it doesn't raise
+            raise OSError(f"could not write {path} (disk full?)")
         for attempt in range(5):  # the outbox may be busy for a moment: retry before giving up
             try:
                 self.outbox.set_snapshot(event_ids, path)

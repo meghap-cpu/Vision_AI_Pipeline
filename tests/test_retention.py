@@ -12,7 +12,7 @@ def run():
     snaps = os.path.join(d, "snapshots"); os.makedirs(snaps)
     box, now = Outbox(os.path.join(d, "outbox.db"), "test-node", "camp"), time.time()
 
-    def ev(age_days, sent, snapshot=None):
+    def ev(age_days, sent, snapshot=None, photo_done=True):
         eid = box.add({"camera_id": "cam01", "use_case": "test", "class": "x", "severity": "warning", "ts": now})
         with box._db() as db:
             db.execute("UPDATE events SET created = ?, sent = ? WHERE event_id = ?", (now - age_days * DAY, int(sent), eid))
@@ -21,10 +21,13 @@ def run():
             if not os.path.exists(path):
                 open(path, "wb").write(b"\0" * 1_000_000)  # 1 MB
             box.set_snapshot([eid], path)
+            if sent and photo_done:  # delivered = event sent AND its photo uploaded
+                box.mark_photos([eid], 1)
         return eid
 
     e1 = ev(3, True, "old_delivered.jpg")       # old, delivered          -> deleted (age)
     ev(3, False, "old_undelivered.jpg")         # old, NOT delivered      -> kept
+    ev(3, True, "old_photo_waiting.jpg", photo_done=False)  # sent, photo NOT uploaded yet -> kept
     ev(0, True, "new_delivered.jpg")            # recent, delivered       -> deleted only to fit the cap
     ev(0, True, "shared.jpg")                   # shared by a delivered...
     ev(0, False, "shared.jpg")                  # ...and an undelivered event -> kept
@@ -36,7 +39,7 @@ def run():
     warn = box._db().execute("SELECT count(*) FROM events WHERE class = 'storage_full'").fetchone()[0]
     e1_snap = box._db().execute("SELECT snapshot FROM events WHERE event_id = ?", (e1,)).fetchone()[0]
     print("files left:", left, "| stats:", stats, "| storage_full warnings:", warn)
-    assert left == ["old_undelivered.jpg", "shared.jpg"], left
+    assert left == ["old_photo_waiting.jpg", "old_undelivered.jpg", "shared.jpg"], left
     assert e6 not in ids and e1 in ids and e1_snap is None
     assert warn == 1
     print("PASS: delivered snapshots removed by age and to fit the cap, undelivered kept, old sent events pruned, "

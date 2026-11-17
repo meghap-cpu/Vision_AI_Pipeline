@@ -108,6 +108,8 @@ def main(path="config/node.yaml"):
         "loop_errors": {k: n for k, n in errors.counts.items() if not k.startswith("probe")},
         "worker_restarts": dict(supervisor.restarts),
         "snapshots_expired": snap_requests.expired, "pose_crops_held": len(crop_store),
+        "oldest_unsent_s": outbox.oldest_unsent_s(), "photos_waiting": outbox.photos_waiting(),
+        "photos_refused": uploader.photos_refused if uploader else 0, "snapshot_drops": snaps.dropped,
         "cameras_offline": [cams[i].id for i, s in enumerate(watchdog.offline_since) if s is not None],
         "workers_alive": status.get("workers"), "unsent_alerts": outbox.unsent(),
         "snapshot_errors": snaps.errors, "node_rss_mb": status.get("rss_mb"), "snapshot_queue": snaps.q.qsize()},
