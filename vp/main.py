@@ -25,7 +25,7 @@ from vp.plugin import Frame, Obj
 from vp.pixels import crop_color, crop_zone
 from vp.pose import decode, pose_box, tensors
 from vp.plugins import REGISTRY
-from vp.remote_config import RESTART_CODE, load_node, watch
+from vp.remote_config import GOOD_AFTER_S, RESTART_CODE, load_node, mark_good, watch
 from vp.router import CropStore, Router, SnapshotRequests
 from vp.supervisor import ErrorCounter, RestartPolicy
 from vp.settings import load
@@ -85,7 +85,7 @@ def _rss_mb():
 
 
 def main(path="config/node.yaml"):
-    settings, source, config_hash, config_url = load_node(path)
+    settings, source, config_hash, config_url, load_info = load_node(path)
     print(f"settings from: {source}", flush=True)
     restart = {"needed": False}
     failure = {"code": 0}  # 1 after a pipeline error or end of stream: the service or Docker restarts the node
@@ -345,7 +345,16 @@ def main(path="config/node.yaml"):
             print("settings changed at the hub: restarting to apply them", flush=True)
             restart["needed"] = True
             GLib.idle_add(loop.quit)
-        watch(config_url, config_hash, settings_changed, settings.hub.get("config_check_s", 60))
+        watch(config_url, config_hash, settings_changed, settings.hub.get("config_check_s", 60),
+              ignore=load_info["ignore"], report=outbox.add)
+
+        def settings_proven():  # ran GOOD_AFTER_S: these settings become last known good
+            errors.run("settings", mark_good, config_hash, os.path.dirname(settings.data_dir + "/") or "data")
+            return False  # once
+        GLib.timeout_add_seconds(GOOD_AFTER_S, settings_proven)
+    for ev in load_info["events"]:  # settings refused at the hub, or rolled back: tell the hub
+        print(f"settings: {ev['class']} {ev['extra']}", flush=True)
+        outbox.add(ev)
     pipe.set_state(Gst.State.PLAYING)
     loop.run()
     pipe.set_state(Gst.State.NULL)
