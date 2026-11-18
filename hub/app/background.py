@@ -32,7 +32,8 @@ EVENTS_KEEP_DAYS = float(os.environ.get("EVENTS_KEEP_DAYS", "90"))
 RECENT_S = 3600  # photos from the last hour are never deleted, even over the cap
 HUB_ID = os.environ.get("HUB_ID", "hub")
 DISK_WARN_GB = float(os.environ.get("HUB_DISK_WARN_GB", "2"))  # hub's own disk alert; 0 = off
-ENDS = ["motion_end", "crowd_end", "object_removed", "man_down_end", "fire_smoke_end", "at_height_end", "node_up", "camera_online", "vlm_up", "disk_ok", "storage_ok", "spill_end"]
+ENDS = ["motion_end", "crowd_end", "object_removed", "man_down_end", "fire_smoke_end", "at_height_end", "node_up", "camera_online", "vlm_up", "disk_ok", "storage_ok", "spill_end",
+        "no_hardhat_end", "no_vest_end"]
 
 
 def node_event(c, node_id, site_id, cls, severity, since, extra):
