@@ -1,7 +1,9 @@
 """Fire and smoke, judged by the VLM. Ported from vlm-fire-smoke: 4 frames sampled 1 s apart go to the VLM with
 the repo's question; 5 positive batches in a row raise the alert, 10 negative in a row end it.
-Changed: the VLM call never blocks the video; unreadable replies are unknown, not crashes; one alert per episode
-(start + end); a VLM that cannot be reached raises a warning instead of looking like "no fire"."""
+Changed: the VLM call never blocks the video; unreadable replies (no JSON, or neither fire nor smoke a clear
+true/false) are unknown and counted, never "no fire"; one alert per episode (start + end); a VLM that cannot be
+reached raises a warning instead of looking like "no fire"; a gap of over max_gap_s between pictures starts a new
+batch."""
 from vp.plugin import Plugin, event
 from vp import vlm
 
@@ -21,6 +23,8 @@ class FireSmokePlugin(Plugin):
         self.batch_size = g("batch_size", 4)
         self.on_after, self.off_after = g("positive_batches", 5), g("negative_batches", 10)
         self.error_every_s = g("error_every_s", 60.0)
+        self.max_gap_s = g("max_gap_s", 3.0)  # pictures further apart than this start a new batch
+        self.last_px_ts = -1e9
         # one client for every fire camera in this worker, with 1 slot per camera (a camera has one batch out at a
         # time); a busy client says so and the camera asks again on its next frame
         self.client = vlm.shared(self.name, g("vlm", {}), camera_id, g("max_in_flight", 1))
@@ -31,6 +35,9 @@ class FireSmokePlugin(Plugin):
     def on_frame(self, frame):
         events = []
         if frame.pixels is not None:
+            if frame.ts - self.last_px_ts > self.max_gap_s:
+                self.batch = []  # a gap (camera dropped out): don't mix pictures from before and after it
+            self.last_px_ts = frame.ts
             self.batch = (self.batch + [frame.pixels])[-self.batch_size:]  # newest frames if the VLM is busy
         if self.pending is not None and self.pending.done():
             events += self._result(frame)
@@ -49,10 +56,12 @@ class FireSmokePlugin(Plugin):
                 self.last_error = frame.ts
                 return [event(self, frame, "vlm_error", severity="info", error=str(e)[:200])]  # alert: vlm_down
             return []
-        ans = r["answer"]
-        if not isinstance(ans, dict):
-            return []  # unreadable reply: unknown, counts neither way
-        fire, smoke = bool(ans.get("fire")), bool(ans.get("smoke"))
+        ans = r["answer"] if isinstance(r["answer"], dict) else {}
+        fire, smoke = vlm.as_bool(ans.get("fire")), vlm.as_bool(ans.get("smoke"))  # strictly: "false" is not fire
+        if fire is None and smoke is None:  # unreadable: unknown, counts neither way (never "all clear")
+            self.client.note_unreadable()
+            return []
+        fire, smoke = fire is True, smoke is True
         if fire or smoke:
             self.pos, self.neg = self.pos + 1, 0
         else:

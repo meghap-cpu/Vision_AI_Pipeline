@@ -35,21 +35,11 @@ PPE_PROMPT = (
 ITEMS = ("harness", "helmet", "vest")
 
 
-def _as_bool(v):
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, str) and v.strip().lower() in ("true", "yes"):
-        return True
-    if isinstance(v, str) and v.strip().lower() in ("false", "no"):
-        return False
-    return None
-
-
 def parse_ppe(ans):
     """The repo's rules on a parsed reply. None if unusable."""
     if not isinstance(ans, dict):
         return None
-    items = {k: _as_bool(ans.get(k)) for k in ITEMS}
+    items = {k: vlm.as_bool(ans.get(k)) for k in ITEMS}
     if all(v is None for v in items.values()):
         return None
     items = {k: False if v is None else v for k, v in items.items()}  # answered some items but not all: assume missing

@@ -35,6 +35,17 @@ def parse_json(text):
     return None
 
 
+def as_bool(v):
+    """A VLM's yes/no read strictly: True/False, or None if unclear. Never bool(v): bool("false") is True."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str) and v.strip().lower() in ("true", "yes"):
+        return True
+    if isinstance(v, str) and v.strip().lower() in ("false", "no"):
+        return False
+    return None
+
+
 class VLMClient:
     def __init__(self, url, model, timeout_s=DEFAULT_TIMEOUT_S, max_in_flight=1, backup_url=None, retry_primary_s=60.0,
                  threads=None):
