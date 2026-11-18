@@ -100,7 +100,8 @@ def test_shared_client_per_use_case():
     assert a.client.max_in_flight == 2 and a.client.timeout == 8.0, "1 slot per fire camera, as before"
     assert FireSmokePlugin("cam1", {"vlm": v}).client is a.client, "a plugin that starts fresh gets the same client"
     assert a.client.max_in_flight == 2, "a fresh start does not add slots again"
-    w = [WorkerAtHeightPlugin(c, {"vlm": v, "zones": []}) for c in ("cam3", "cam4")]
+    zone = [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]]
+    w = [WorkerAtHeightPlugin(c, {"vlm": v, "zones": zone}) for c in ("cam3", "cam4")]
     assert w[0].client is w[1].client is not a.client, "each use case has its own"
     assert w[0].client.max_in_flight == 4, "2 slots per at-height camera: the capacity of one client per camera"
     assert vlm.shared("x", {}, "c", 1).timeout == vlm.DEFAULT_TIMEOUT_S == 8.0
@@ -139,7 +140,7 @@ def test_plugins_ask_again_when_busy():
     params = {"zones": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]]}
     wah = WorkerAtHeightPlugin("cam2", params)
     wah.client = BusyThenFree(busy=2, answer={"harness": True, "helmet": True, "vest": True})
-    img = np.zeros((72, 128, 3), np.uint8)
+    img = np.zeros((720, 1280, 3), np.uint8)
     for n in range(6):
         wah.on_frame(Frame("cam2", n, n / 5, [Obj(1, 0, 0.9, (0.4, 0.4, 0.5, 0.9))], pixels=img))
     assert len(wah.client.asked) == 3, f"asked again after each busy reply: {len(wah.client.asked)}"
@@ -154,7 +155,7 @@ def test_plugins_ask_again_when_busy():
     wah.on_frame(Frame("cam3", 1, 1.0, [Obj(1, 0, 0.9, (0.1, 0.1, 0.2, 0.5)),
                                         Obj(2, 0, 0.9, (0.6, 0.5, 0.9, 0.95))], pixels=img))  # near the edge
     assert len(wah.client.asked) == 1, "stops asking once the client is busy"
-    assert wah.client.asked[0][1] > 30, f"near-edge person (wide crop) asked first: {wah.client.asked}"
+    assert wah.client.asked[0][1] > 300, f"near-edge person (wide crop) asked first: {wah.client.asked}"
     print("ok  plugins: fire keeps its newest 4 frames and asks again; worker at height asks again with a fresh crop, "
           "most urgent person first")
 

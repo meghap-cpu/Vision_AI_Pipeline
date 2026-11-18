@@ -60,5 +60,79 @@ def run():
           "high incidents stay open, compliant ones close; walk-throughs and workers on the ground raise nothing")
 
 
+class CountingVLM:
+    """Records each question's crop size and when it was asked; answers at once with `answer`."""
+    def __init__(self, answer):
+        self.answer, self.asked, self.unreadable = answer, [], 0
+
+    def ask(self, images, prompt, max_tokens=60):
+        self.asked.append(images[0].shape[:2])
+        f = Future()
+        f.set_result({"answer": self.answer, "raw": str(self.answer), "seconds": 0.5})
+        return f
+
+    def note_unreadable(self):
+        self.unreadable += 1
+
+
+ZONE = {"zones": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]]}
+IMG = np.zeros((720, 1280, 3), np.uint8)
+
+
+def test_asks_only_with_its_own_picture():
+    p = WorkerAtHeightPlugin("c", ZONE)
+    p.client = CountingVLM(OK)
+    p.on_frame(Frame("c", 0, 0.0, [], pixels=IMG))  # a picture with nobody in it
+    p.on_frame(Frame("c", 1, 0.2, [Obj(1, 0, 0.9, (0.4, 0.3, 0.5, 0.8))]))  # person, but no picture of this moment
+    assert p.client.asked == [], "never crops a person out of an older picture"
+    p.on_frame(Frame("c", 2, 0.4, [Obj(1, 0, 0.9, (0.4, 0.3, 0.5, 0.8))], pixels=IMG))
+    assert len(p.client.asked) == 1, "asks on the next frame that has its own picture"
+    print("ok  same moment: the crop is cut only from the picture of the frame the box came from")
+
+
+def test_too_small_stays_unverified():
+    p = WorkerAtHeightPlugin("c", ZONE)
+    p.client, got = CountingVLM(NOTHING), []
+    tiny = Obj(1, 0, 0.9, (0.50, 0.50, 0.51, 0.55))  # 36 px tall in a 720 px picture (limit 48)
+    for n in range(60):
+        got += p.on_frame(Frame("c", n, n / 5, [tiny], pixels=IMG))
+    assert p.client.asked == [], "too small to judge: not asked, so no false 'no harness'"
+    unv = [e for e in got if e["class"] == "at_height_unverified"]
+    assert len(unv) == 1 and unv[0]["extra"]["why"] == "too_small", got
+    print("ok  too small: never asked, one at_height_unverified with why=too_small (no false violation)")
+
+
+def test_unreadable_answer_waits_before_asking_again():
+    p = WorkerAtHeightPlugin("c", ZONE)
+    p.client = CountingVLM({"notes": "cannot tell"})  # answered, but no harness/helmet/vest: unreadable
+    for n in range(10):  # 2 s at 5 fps, a picture every frame
+        p.on_frame(Frame("c", n, n / 5, [Obj(1, 0, 0.9, (0.4, 0.3, 0.5, 0.8))], pixels=IMG))
+    assert len(p.client.asked) == 2, f"asked at 0 s and 1 s, not on every frame: {len(p.client.asked)}"
+    assert p.client.unreadable == 2, "each unusable answer is counted"
+    print(f"ok  unreadable: asked {len(p.client.asked)} times in 2 s (not 10), each counted as unreadable")
+
+
+def test_no_zone_is_a_settings_error():
+    import queue
+    from vp import worker
+    try:
+        WorkerAtHeightPlugin("c", {"zones": []})
+        raise AssertionError("no zone must be refused")
+    except ValueError:
+        pass
+    events = queue.Queue()
+    frames = queue.Queue()
+    frames.put(None)
+    worker.run("worker_at_height", {"cam9": {"rule": "Harness", "zones": []}}, frames, events)
+    ev = events.get_nowait()
+    assert ev["class"] == "plugin_error" and ev["camera_id"] == "cam9" and ev["extra"]["reason"] == "settings", ev
+    print("ok  no zone: reported once as plugin_error (settings) instead of a camera that silently never alerts")
+
+
 if __name__ == "__main__":
     run()
+    test_asks_only_with_its_own_picture()
+    test_too_small_stays_unverified()
+    test_unreadable_answer_waits_before_asking_again()
+    test_no_zone_is_a_settings_error()
+    print("PASS: same-moment crops, too-small people stay unverified, unreadable answers wait, no zone is reported")

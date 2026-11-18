@@ -44,8 +44,9 @@ class VLMClient:
         self.model, self.timeout = model, timeout_s
         self.pool = ThreadPoolExecutor(max_workers=threads or max_in_flight)  # threads start only when needed
         self.max_in_flight, self._busy, self._lock = max_in_flight, 0, threading.Lock()
-        # running totals: questions asked, answered, by the backup, failed, refused because full; answer seconds
-        self.counts = {"asked": 0, "answered": 0, "by_backup": 0, "failed": 0, "busy": 0}
+        # running totals: questions asked, answered, by the backup, failed, refused because full, answered but
+        # unusable (the plugin says so); answer seconds
+        self.counts = {"asked": 0, "answered": 0, "by_backup": 0, "failed": 0, "busy": 0, "unreadable": 0}
         self._seconds = 0.0
 
     @property
@@ -76,6 +77,11 @@ class VLMClient:
                 self.counts["answered"] += 1
                 self.counts["by_backup"] += r["server"] == "backup"
                 self._seconds += r["seconds"]
+
+    def note_unreadable(self):
+        """The plugin could not use an answer (no JSON, or none of the fields it needs)."""
+        with self._lock:
+            self.counts["unreadable"] += 1
 
     def stats(self):
         """Running totals since start, plus the average answer time and the questions running now."""
