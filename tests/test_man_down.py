@@ -46,7 +46,42 @@ def run():
                       f"{ev['extra'].get('signals', '')}")
             t += 1 / FPS
     assert got == [("man_down", 1), ("man_down_end", 1), ("man_down", 4)], f"unexpected events: {got}"
-    print("PASS: one alert for the real fall, an end record on recovery; trip, crouch and partial body ignored; a wobbling score still alerts")
+    print("ok  one alert for the real fall, an end record on recovery; trip, crouch and partial body ignored; "
+          "a wobbling score still alerts")
+    test_small_person_lying()
+    test_lost_person()
+    print("PASS: falls alert, recoveries end them; small people lying down are judged; lost people end as 'lost'")
+
+
+def run_plugin(plugin, seconds, objs, start=0.0):
+    """FPS frames per second; objs(t) gives the objects at time t. Returns the events (pose_stats left out)."""
+    out = []
+    for n in range(int(seconds * FPS)):
+        t = start + n / FPS
+        out += [e for e in plugin.on_frame(Frame("c", n, t, objs(t))) if e["class"] != "pose_stats"]
+    return out
+
+
+def test_small_person_lying():
+    # 150 px tall standing, but only ~75 px tall lying down (180 px wide): the guard must look at the longer side
+    small = person(1, UPRIGHT, lying=True, size=150)
+    assert (small.box[3] - small.box[1]) * H < 80 < (small.box[2] - small.box[0]) * W
+    got = run_plugin(ManDownPlugin("c", {}), 10, lambda t: [small])
+    assert [e["class"] for e in got] == ["man_down"], got
+    print("ok  a small worker lying down (75 px tall, 180 px wide) is judged and alerts")
+
+
+def test_lost_person():
+    p = ManDownPlugin("c", {"lost_s": 60})
+    got = run_plugin(p, 10, lambda t: [person(1, UPRIGHT, lying=True)])
+    got += run_plugin(p, 30, lambda t: [person(1, UPRIGHT, lying=True, visible=11)], start=10)  # covered: unknown
+    assert [e["class"] for e in got] == ["man_down"], f"seen but unscoreable must keep the alarm open: {got}"
+    got = run_plugin(p, 59, lambda t: [], start=40)  # carried away
+    assert got == [], f"not before lost_s: {got}"
+    got = run_plugin(p, 3, lambda t: [], start=99)
+    assert [(e["class"], e["extra"]["why"]) for e in got] == [("man_down_end", "lost")], got
+    assert 1 not in p.people, "a lost person is forgotten"
+    print("ok  alarmed person covered (unscoreable) stays open; gone for 60 s -> man_down_end, why: lost, forgotten")
 
 
 if __name__ == "__main__":

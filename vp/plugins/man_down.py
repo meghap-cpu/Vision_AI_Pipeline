@@ -1,7 +1,9 @@
 """Man-down. Per-frame scoring ported faithfully from Mandown_Detection (core/skeleton.py, core/decision.py),
 with its tuned weights and thresholds from config/config.yaml. Timing differs on purpose: seconds from frame
 timestamps (the repo counted frames at 25 fps) with hysteresis on the smoothed score, as decision.py intends.
-Joints (COCO-17): 0 nose, 5/6 shoulders, 11/12 hips, 13/14 knees, 15/16 ankles."""
+Joints (COCO-17): 0 nose, 5/6 shoulders, 11/12 hips, 13/14 knees, 15/16 ankles.
+Also changed: the minimum size applies to the box's longer side (someone lying down is wide, not tall); an alarm
+ends with why: recovered (clearly up for recovery_s) or why: lost (not seen for lost_s; the person is then forgotten)."""
 from vp.plugin import Plugin, event
 import math
 
@@ -39,6 +41,7 @@ class ManDownPlugin(Plugin):
         # timing in seconds (repo frames at 25 fps: dwell 150, recovery 75, unseen 60)
         self.dwell_s, self.recovery_s = g("dwell_s", 6.0), g("recovery_s", 3.0)
         self.forget_s, self.cooldown_s = g("forget_s", 2.4), g("cooldown_s", 30.0)
+        self.lost_s = g("lost_s", 60.0)  # an alarmed person not seen at all this long: incident ends (why: lost)
         self.people = {}
         self.debug_s = g("debug_every_s", 0)  # diagnostic only; 0 = off
         self.stats, self.last_debug = {"scored": 0, "unknown": 0, "max_score": 0.0}, None
@@ -50,8 +53,8 @@ class ManDownPlugin(Plugin):
             return None
         x1, y1, x2, y2 = o.box[0] * self.fw, o.box[1] * self.fh, o.box[2] * self.fw, o.box[3] * self.fh
         bw, bh = max(x2 - x1, 1.0), max(y2 - y1, 1.0)
-        if bh < self.min_box_px:
-            return None                                                  # bbox too small
+        if max(bw, bh) < self.min_box_px:
+            return None  # too small to judge: the longer side, as someone lying down is wide, not tall
         pt = [(k[0] * self.fw, k[1] * self.fh, k[2]) for k in kp]
         if not (pt[11][2] >= self.kp_guard or pt[12][2] >= self.kp_guard):
             return None                                                  # hips not visible
@@ -100,6 +103,7 @@ class ManDownPlugin(Plugin):
                 continue
             st = self.people.setdefault(o.track_id, {"ema": 0.0, "valid": frame.ts, "down": None, "up": None,
                                                      "alerted": False, "last_alert": -1e9})
+            st["seen"] = frame.ts  # seen at all, even if not scoreable (e.g. partly covered)
             result = self.score(o)
             if result is None:
                 self.stats["unknown"] += 1
@@ -127,11 +131,17 @@ class ManDownPlugin(Plugin):
                     if frame.ts - st["up"] >= self.recovery_s:
                         st["alerted"], st["up"] = False, None
                         events.append(event(self, frame, "man_down_end", severity="info", incident=f"{o.track_id}@{st['last_alert']:.1f}", confidence=1.0,
-                                            track_id=o.track_id, box=tuple(round(v, 3) for v in o.box)))
+                                            track_id=o.track_id, box=tuple(round(v, 3) for v in o.box), why="recovered"))
             # Crouching band (0.50-0.72): never starts a fall (repo: crouching_as_fallen false), but someone
             # already down stays down through small wobbles until clearly upright (below 0.50): hysteresis.
-        for tid in [t for t, st in self.people.items() if frame.ts - st["valid"] > self.forget_s and not st["alerted"]]:
-            del self.people[tid]
+        for tid, st in list(self.people.items()):
+            if st["alerted"] and frame.ts - st["seen"] > self.lost_s:
+                # carried away or lost by the tracker: close the incident, and say it was not a recovery
+                del self.people[tid]
+                events.append(event(self, frame, "man_down_end", severity="info", incident=f"{tid}@{st['last_alert']:.1f}",
+                                    confidence=1.0, track_id=tid, why="lost", unseen_s=round(frame.ts - st["seen"], 1)))
+            elif not st["alerted"] and frame.ts - st["valid"] > self.forget_s:
+                del self.people[tid]
         if self.debug_s and (self.last_debug is None or frame.ts - self.last_debug >= self.debug_s):
             if self.last_debug is not None:
                 events.append(event(self, frame, "pose_stats", severity="info", **self.stats))
